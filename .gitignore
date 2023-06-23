@@ -3,6 +3,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# CSV files
+*.csv
+
+# Visual Studio Code
+*.code-workspace
+
 # C extensions
 *.so
 
