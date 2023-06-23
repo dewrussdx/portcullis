@@ -1,4 +1,4 @@
-from timeseries import YFTimeSeries
+from portcullis.timeseries import YFTimeSeries
 
 __version__ = "0.1"
 
