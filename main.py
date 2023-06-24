@@ -1,10 +1,7 @@
 from portcullis.timeseries import YFTimeSeries
 
-__version__ = "0.1"
-
 
 def main():
-    print(f"Portcullis Version {__version__}")
     ts = YFTimeSeries(["msft", "goog"])
     ts.download(start="2023-01-01")
 
