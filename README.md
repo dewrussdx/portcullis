@@ -11,7 +11,10 @@ NOTE: The requirements will be replaced with a dockerized environment in the nea
 - Clone the repository via SSH, e.g. ```git clone git@github.com:dewrussdx/portcullis.git```. Change into the directory containing the respository, e.g. ```cd portcullis```
 2. Create Python virtual environment
 - Run ```python -m venv .venv``` to create a virtual environment in the ```.venv``` directory
-- Activate the Python virtual environment via ```.venv\Scripts\activate.bat``` (Windows) or ```./.venv/scripts/activate``` (Linux/MacOS)
+- Activate the Python virtual environment via ```.venv\Scripts\activate.bat``` (Windows) or ```source ./.venv/bin/activate``` (Linux/MacOS)
 3. Install Portcullis Python package dependencies
 - ```python -m pip install -r requirements.txt```
 4. Run Portcullis via ```python ./main.py```
+
+
+This framework is using the yfinance package to manage financial information. Documentation can be found here: https://pypi.org/project/yfinance/
