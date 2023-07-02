@@ -7,7 +7,7 @@ NOTE: The requirements will be replaced with a dockerized environment in the nea
 
 1. Install Python version 3.x (e.g. from https://www.python.org/downloads/ or consult your OS installation manuals.)
 - Verify that Python is properly installed, e.g. via ```python --version```
-2. NOTE: This step requires a valid SSH key on your system. To create this key follow the instructions on https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent. Insure that your public key is uploaded to github by talking to the repository administrator
+2. NOTE: This step requires a valid SSH key on your system. To create this key follow the instructions on https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent. Insure that your public key is uploaded to your github account for access authentication.
 - Clone the repository via SSH, e.g. ```git clone git@github.com:dewrussdx/portcullis.git```. Change into the directory containing the respository, e.g. ```cd portcullis```
 2. Create Python virtual environment
 - Run ```python -m venv .venv``` to create a virtual environment in the ```.venv``` directory
