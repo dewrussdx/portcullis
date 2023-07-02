@@ -1,6 +1,10 @@
 import yfinance as yf
 import pandas as pd
 
+'''
+Stock class
+'''
+
 
 class Stock:
     def __init__(self, symbol: str):
@@ -15,6 +19,11 @@ class Stock:
     def get_timeseries(self, **kwargs) -> pd.DataFrame:
         return pd.DataFrame(yf.download(
             self.symbol, **kwargs))
+
+
+'''
+Portfolio class
+'''
 
 
 class Portfolio:
