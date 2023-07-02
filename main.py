@@ -6,13 +6,12 @@ def main():
         'MSFT', 'GOOG'
     ])
 
-    msft = portfolio.get_stock('msft')
-    print(msft.get_ticker().info)
-    print(msft.get_timeseries(start='2023-01-01'))
+    for key, value in portfolio.items():
+        print(f'{key}: {value}')
 
-    goog = portfolio.get_stock('goog')
-    print(goog.get_ticker().info)
-    print(goog.get_timeseries())
+    msft = portfolio['msft']
+    print(msft.asset.get_ticker().info)
+    print(msft.asset.get_timeseries(start='2023-01-01'))
 
 
 if __name__ == "__main__":
