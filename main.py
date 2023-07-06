@@ -9,10 +9,8 @@ def main():
     for key, value in portfolio.items():
         print(f'{key}: {value}')
 
-    msft = portfolio['msft']
-    print(msft.asset.get_ticker().info)
-    print(msft.asset.get_timeseries(start='2023-01-01'))
-
-
+    mean_returns = portfolio.get_mean_returns(start='2023-01-01')
+    print(mean_returns)
+    
 if __name__ == "__main__":
     main()

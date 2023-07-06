@@ -361,7 +361,7 @@ def sandbox2():
     y2 = opt_ret
     plt.plot([x1, x2], [y1, y2], c='green')
 
-    # Notes: 
+    # Notes:
     # 1. Portfolio with highest sharp ratio is also called Tangent portfolio
     # 2. Including risk free assets, and following the tangent line, better portfolios can be found
 

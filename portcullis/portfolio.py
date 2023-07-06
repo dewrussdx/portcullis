@@ -1,5 +1,6 @@
 import yfinance as yf
 import pandas as pd
+import numpy as np
 
 '''
 Asset class
@@ -24,6 +25,15 @@ class Asset:
         return pd.DataFrame(yf.download(
             self.symbol, **kwargs))
 
+    def get_mean_return(self, **kwargs) -> float:
+        series = self.get_timeseries(**kwargs)
+        close = series['Close']
+        # if close.isna().sum().sum() != 0:
+        #    close.fillna(method='ffill', inplace=True)
+        #    close.fillna(method='bfill', inplace=True)
+        series['Return'] = close.pct_change(fill_method='ffill')
+        return series['Return'][1:].mean()
+
 
 '''
 Portfolio class
@@ -33,7 +43,7 @@ Describes a portfolio of finanical assets
 
 class Portfolio:
     class Item:
-        def __init__(self, asset, weight):
+        def __init__(self, asset, weight=0.0):
             self.asset = asset
             self.weight = weight
 
@@ -53,10 +63,21 @@ class Portfolio:
         # Check for duplicates
         assert(self._values.get(symbol) is None)
         # Insert item into portfolio
-        self._values[symbol.upper()] = Portfolio.Item(Asset(symbol), 0.0)
+        self._values[symbol.upper()] = Portfolio.Item(Asset(symbol))
 
     def remove_item(self, symbol: str) -> None:
         self._values.pop(symbol.upper(), None)
+
+    # Return vector of mean returns of this portfolio
+    def get_mean_returns(self, start) -> None:
+        returns = []
+        for _, value in self._values.items():
+            returns.append(value.asset.get_mean_return(start=start))
+        return np.array(returns)
+
+    # Return sharpe ratio
+    def get_sharpe_ratio(self, risk_free_rate=0.0) -> float:
+        return 0
 
     # Dictionary interface (partial)
     def __getitem__(self, key: str) -> Item:
