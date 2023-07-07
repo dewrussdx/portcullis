@@ -1,16 +1,20 @@
-from portcullis.portfolio import Portfolio
+from portcullis.portfolio import Portfolio, Asset
 
 
 def main():
     portfolio = Portfolio([
-        'MSFT', 'GOOG'
+        'GOOG', 'SBUX', 'KSS', 'NEM'
     ])
 
-    for key, value in portfolio.items():
-        print(f'{key}: {value}')
+    # portfolio.export_timeseries_to_csv(
+    #    'portfolio.csv', start='2014-01-01', end='2014-07-01')
 
-    mean_returns = portfolio.get_mean_returns(start='2023-01-01')
-    print(mean_returns)
-    
+    weights = portfolio.optimize(risk_free_rate=0.03/252,
+                                 start='2014-01-01', end='2014-07-01')
+    if weights is not None:
+        print(f'Sharp Ratio: {portfolio.get_sharp_ratio()}')
+        print(f'Weights: {portfolio.get_weights()}')
+
+
 if __name__ == "__main__":
     main()

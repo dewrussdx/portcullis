@@ -119,7 +119,8 @@ def sandbox1():
 
 
 def sandbox2():
-    df = pd.read_csv('sp500sub.csv', index_col='Date', parse_dates=True)
+    df = pd.read_csv('portfolio.csv', index_col='Date', parse_dates=True)
+    print(df) 
     print(df.columns)
     print(df['Name'].unique())
     names = ['GOOG', 'SBUX', 'KSS', 'NEM']
@@ -139,24 +140,26 @@ def sandbox2():
         df_tmp = pd.DataFrame(
             data=df_sym['Close'].to_numpy(), index=df_sym.index, columns=[name])
         close_prices = close_prices.join(df_tmp)
-    print(close_prices.head())
+    print(close_prices) 
     num_na = close_prices.isna().sum().sum()
     print(f'num_na: {num_na}')
     close_prices.fillna(method='ffill', inplace=True)
     print(close_prices.isna().sum().sum())
     close_prices.fillna(method='bfill', inplace=True)
     print(close_prices.isna().sum().sum())
-    returns = pd.DataFrame(index=dates[1:])
+    returns = pd.DataFrame(index=dates[1:])  
     for name in names:
         current_returns = close_prices[name].pct_change()
         returns[name] = current_returns.iloc[1:] * 100
-    print(returns.head())
+    print(returns)
+    
     mean_return = returns.mean()
     print(mean_return)
     cov = returns.cov()
     print(cov)
     cov_np = cov.to_numpy()
     print(cov_np)
+
     N = 10000
     D = len(mean_return)
     returns = np.zeros(N)
@@ -330,6 +333,7 @@ def sandbox2():
     print(res)
     best_sr, best_w = -res.fun, res.x
     print(f'best_sr={best_sr}, best_w={best_w}')
+
     # Let's experiment with monte-carlo simulation, trying to find the best solution
     mc_best_w = None
     mc_best_sr = float('-inf')
