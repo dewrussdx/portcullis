@@ -51,6 +51,13 @@ class Portfolio:
         def __str__(self):
             print(f'{self.asset} x {self.weight}')
 
+    # Calculate sharp ratio
+    @staticmethod
+    def calculate_sharp_ratio(weights, cov, mean_return, risk_free_rate=0.0) -> float:
+        expected_return = weights.dot(mean_return)
+        std = np.sqrt(weights.dot(cov).dot(weights))
+        return (expected_return-risk_free_rate)/std
+
     def __init__(self, symbols: list[str] = None):
         self._values = dict()
         self.sharp_ratio = None
@@ -142,15 +149,6 @@ class Portfolio:
         for _, value in self._values.items():
             weights.append(value.weight)
         return weights
-
-    # Calculate sharp ratio
-    @staticmethod
-    def calculate_sharp_ratio(weights, cov, mean_return, risk_free_rate=0.0) -> float:
-        expected_return = weights.dot(mean_return)
-        # Risk (or Standard deviation) == sqrt(variance)
-        std = np.sqrt(weights.dot(cov).dot(weights))
-        # Negate sharp ratio (to turn mimization into maximization)
-        return -(expected_return-risk_free_rate)/std
 
     # Export timeseries to CSV file
     def export_timeseries_to_csv(self, csv, **kwargs) -> None:
