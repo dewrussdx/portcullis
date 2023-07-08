@@ -46,7 +46,7 @@ class Asset:
         series = self.get_timeseries(**kwargs)
         if series is not None:
             close = series['Close']
-            assert close.isna().sum().sum() == 0 # Sanity check, should not happen here
+            assert close.isna().sum().sum() == 0  # Sanity check, should not happen here
             returns = close.pct_change(
                 fill_method='ffill').rename(self.symbol)
             # TODO: Figure out why some notation have pct_change multiplied by 100, we omit here: data=data[1:]*100
@@ -79,13 +79,23 @@ class Portfolio:
             self.weight = weight
 
         def __str__(self):
-            return f'{self.asset} x {self.weight}'
+            return "{'%s':'%s'}" % (self.asset.symbol, self.weight)
 
     # Constructor
     def __init__(self, symbols: list[str] = None):
         self._values = dict()
         self.sharp_ratio = None
         self.add_symbols(symbols or [])
+
+    # Return json string
+    def __str__(self):
+        out = {}
+        out['sharp_ratio'] = str(self.sharp_ratio)
+        assets = {}
+        for key, value in self._values.items():
+            assets[key] = str(value.weight)
+        out['assets'] = assets
+        return str(out)
 
     # Calculate sharp ratio
     @staticmethod
@@ -156,7 +166,7 @@ class Portfolio:
     # Compute optimal portfolio (maximize sharp ratio) and return the weights
     def optimize(self, bounds=None, risk_free_rate=0.0, **kwargs) -> bool:
         # Set default bounds (allowing short sales) if not specified
-        bounds = bounds or (-0.5, None)
+        bounds = bounds or (0, None)
         print(f'Bounds: {bounds}')
         print(f'Risk Free Rate: {risk_free_rate}')
         returns = self.get_returns(**kwargs)
@@ -196,7 +206,7 @@ class Portfolio:
             ],
             bounds=[bounds] * D,
             options={
-                'maxiter': 200,
+                'maxiter': 100,
             }
         )
 
@@ -232,6 +242,7 @@ class Portfolio:
     # Apply weights to items
     def _apply_weights(self, weights) -> None:
         assert len(weights) == len(self._values)
+        assert abs(sum(weights) - 1.0) < 0.000001
         index = 0
         for _, value in self._values.items():
             value.weight = weights[index]

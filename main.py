@@ -10,9 +10,8 @@ def investment_portfolio_sample():
                    'CEG', 'AMD', 'SEDG', 'NVDA', 'CARR', 'DXCM']
     print(top10_sp500)
     sp500 = Portfolio(top10_sp500)
-    if sp500.optimize(risk_free_rate=0.03/252, start=start, interval=interval):
-        print(f'Sharp Ratio: {sp500.get_sharp_ratio()}')
-        print(f'Weights: {sp500.get_weights()}')
+    if sp500.optimize(bounds=(0, None), risk_free_rate=0.03/252, start=start, interval=interval):
+        print(sp500)
 
 
 def swingtrading_portfolio_sample():
