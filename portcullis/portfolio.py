@@ -17,6 +17,14 @@ class Asset:
     def __str__(self):
         return f'{self.symbol}'
 
+    # Fill up NA values when dealing with panda dataframes
+    @staticmethod
+    def fill_na(df) -> object:
+        if df.isna().sum().sum() > 0:
+            df.fillna(method='ffill', inplace=True)
+            df.fillna(method='bfill', inplace=True)
+        return df
+
     # Fetch ticker information
     def get_ticker(self, force_update=False) -> yf.Ticker:
         if force_update or self.ticker is None:
@@ -35,6 +43,14 @@ class Asset:
             fill_method='ffill').rename(self.symbol)
         return pd.DataFrame(index=series.index[1:], data=data[1:] * 100)
 
+    # Compute swing bounds (minimum range, mean range)
+    def get_swing_bounds(self, **kwargs):
+        series = self.get_timeseries(**kwargs)
+        high = Asset.fill_na(series['High'])
+        low = Asset.fill_na(series['Low'])
+        column = high / low - 1.0
+        return column.min(), column.mean()
+
 
 '''
 Portfolio class
@@ -49,7 +65,12 @@ class Portfolio:
             self.weight = weight
 
         def __str__(self):
-            print(f'{self.asset} x {self.weight}')
+            return f'{self.asset} x {self.weight}'
+
+    def __init__(self, symbols: list[str] = None):
+        self._values = dict()
+        self.sharp_ratio = None
+        self.add_symbols(symbols or [])
 
     # Calculate sharp ratio
     @staticmethod
@@ -58,16 +79,13 @@ class Portfolio:
         std = np.sqrt(weights.dot(cov).dot(weights))
         return (expected_return-risk_free_rate)/std
 
-    def __init__(self, symbols: list[str] = None):
-        self._values = dict()
-        self.sharp_ratio = None
-        self.add_symbols(symbols or [])
-
+    # Add list of assets to the portfolio
     def add_symbols(self, symbols: list[str]) -> None:
         # Convert list of symbols to portfolio items
         for symbol in symbols:
             self.add_symbol(symbol)
 
+    # Add one asset to the portfolio
     def add_symbol(self, symbol: str) -> None:
         symbol = symbol.upper()
         # Assert no duplicates
@@ -75,6 +93,7 @@ class Portfolio:
         # Insert item into portfolio
         self._values[symbol] = Portfolio.Item(symbol)
 
+    # Remove asset
     def remove_symbol(self, symbol: str) -> None:
         self._values.pop(symbol.upper(), None)
 
@@ -113,9 +132,9 @@ class Portfolio:
             return -(expected_return-risk_free_rate)/std
 
         result = minimize(
-            fun=objective_minimize_neg_sharp_ratio,  # objective
+            fun=objective_minimize_neg_sharp_ratio,
             x0=np.ones(D) / D,  # Initial guess for the weights
-            method='SLSQP',  # optimizing method
+            method='SLSQP',
             constraints=[
                 {
                     'type': 'eq',
@@ -130,14 +149,6 @@ class Portfolio:
             # Return sharp_ratio and portfolio weights
             return True
         return False
-
-    # Apply weights to items
-    def _apply_weights(self, weights) -> None:
-        assert len(weights) == len(self._values)
-        index = 0
-        for _, value in self._values.items():
-            value.weight = weights[index]
-            index += 1
 
     # Return the Sharp retio of this portfolio
     def get_sharp_ratio(self) -> float:
@@ -159,6 +170,14 @@ class Portfolio:
             series['Name'] = asset.symbol
             frames.append(series)
         pd.concat(frames).to_csv(csv)
+
+    # Apply weights to items
+    def _apply_weights(self, weights) -> None:
+        assert len(weights) == len(self._values)
+        index = 0
+        for _, value in self._values.items():
+            value.weight = weights[index]
+            index += 1
 
     # Dictionary interface (partial)
     def __getitem__(self, key: str) -> Item:

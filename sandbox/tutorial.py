@@ -120,7 +120,7 @@ def sandbox1():
 
 def sandbox2():
     df = pd.read_csv('portfolio.csv', index_col='Date', parse_dates=True)
-    print(df) 
+    print(df)
     print(df.columns)
     print(df['Name'].unique())
     names = ['GOOG', 'SBUX', 'KSS', 'NEM']
@@ -140,19 +140,19 @@ def sandbox2():
         df_tmp = pd.DataFrame(
             data=df_sym['Close'].to_numpy(), index=df_sym.index, columns=[name])
         close_prices = close_prices.join(df_tmp)
-    print(close_prices) 
+    print(close_prices)
     num_na = close_prices.isna().sum().sum()
     print(f'num_na: {num_na}')
     close_prices.fillna(method='ffill', inplace=True)
     print(close_prices.isna().sum().sum())
     close_prices.fillna(method='bfill', inplace=True)
     print(close_prices.isna().sum().sum())
-    returns = pd.DataFrame(index=dates[1:])  
+    returns = pd.DataFrame(index=dates[1:])
     for name in names:
         current_returns = close_prices[name].pct_change()
         returns[name] = current_returns.iloc[1:] * 100
     print(returns)
-    
+
     mean_return = returns.mean()
     print(mean_return)
     cov = returns.cov()
