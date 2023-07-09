@@ -1,75 +1,11 @@
-import yfinance as yf
-import yfinance.shared as yfs
-import pandas as pd
-import numpy as np
-from scipy.optimize import minimize
-
-'''
-Asset class
-Describes an asset traded on financial exchanges
-'''
-
-sp500_index = ['CDW', 'GM', 'GRMN', 'STE', 'STX', 'CPRT', 'CBRE', 'CMI', 'WFC', 'MA', 'BIO', 'MDT', 'DGX', 'AKAM', 'IPG', 'EBAY', 'LMT', 'ACGL', 'ACN', 'BRO', 'CSCO', 'VTRS', 'AJG', 'ORLY', 'STT', 'AZO', 'MS', 'COF', 'ROST', 'CHTR', 'VRSK', 'WM', 'OKE', 'MDLZ', 'BXP', 'ADP', 'PTC', 'HBAN', 'CCI', 'PSA', 'PPG', 'PEAK', 'TT', 'PODD', 'MPWR', 'KIM', 'HST', 'BKNG', 'FANG', 'TAP', 'MOS', 'JBHT', 'AMAT', 'RMD', 'XEL', 'GS', 'SWKS', 'AWK', 'SBUX', 'MOH', 'FAST', 'SHW', 'BBWI', 'DPZ', 'DIS', 'FTNT', 'FMC', 'HON', 'ALLE', 'GL', 'HLT', 'PFG', 'PANW', 'EOG', 'PGR', 'WELL', 'PNR', 'WYNN', 'K', 'LVS', 'JCI', 'FDS', 'DHR', 'CAH', 'NTAP', 'ALB', 'NSC', 'FLT', 'APA', 'CI', 'AVGO', 'EW', 'HSIC', 'MO', 'WAT', 'AON', 'CPB', 'HSY', 'ITW', 'PLD', 'HAL', 'MCK', 'LIN', 'KEY', 'NCLH', 'QCOM', 'IT', 'PH', 'ETN', 'RSG', 'XOM', 'GOOGL', 'NEE', 'MMC', 'NFLX', 'AAL', 'ATVI', 'TMO', 'UPS', 'ADBE', 'ARE', 'NOC', 'EL', 'LKQ', 'FIS', 'CHD', 'FI', 'BLK', 'NRG', 'PRU', 'IEX', 'V', 'ATO', 'AXON', 'CPT', 'ODFL', 'IDXX', 'BG', 'ZION', 'BK', 'URI', 'ANET', 'NEM', 'RJF', 'AXP', 'WTW', 'TRMB', 'ADI', 'FICO', 'JNJ', 'TGT', 'BKR', 'DFS', 'ROK', 'COST', 'SO', 'RTX', 'ON', 'AMCR', 'BIIB', 'TXT', 'DUK', 'CME', 'TSCO', 'IFF', 'SYY', 'IQV', 'TEL', 'WHR', 'EQIX', 'ABC', 'F', 'META', 'PHM', 'KDP', 'SBAC', 'XRAY', 'VRTX', 'CINF', 'A', 'STZ', 'LEN', 'IVZ', 'TXN', 'STLD', 'GD', 'GPN', 'TDG', 'AMD', 'GPC', 'AMP', 'WRB', 'ENPH', 'BSX', 'ZTS', 'FSLR', 'KLAC', 'INCY', 'AOS', 'DLTR', 'ABT', 'MAA', 'MTB', 'TRV', 'YUM', 'PXD', 'WAB', 'POOL', 'MTCH', 'TPR', 'GILD', 'TSLA', 'L', 'DG', 'CRM', 'SYK', 'TECH', 'IP', 'SPG', 'VLO', 'RL', 'PFE', 'SNA', 'ABBV', 'FRT', 'LH', 'HES', 'UNH', 'INTU', 'BWA', 'PPL', 'CF', 'DVA', 'DD', 'EIX',
-               'ICE', 'BAX', 'LNT', 'GE', 'HD', 'MSI', 'UNP', 'DVN', 'LYV', 'FITB', 'CMCSA', 'EA', 'FCX', 'CE', 'PCG', 'O', 'WEC', 'HUM', 'MPC', 'ISRG', 'MGM', 'APTV', 'WMT', 'CSGP', 'MRO', 'EMN', 'MKTX', 'CMG', 'ROP', 'PWR', 'JPM', 'EXPE', 'UAL', 'HRL', 'RHI', 'PAYC', 'EQT', 'NTRS', 'TYL', 'BMY', 'CL', 'TFX', 'AAP', 'LOW', 'PM', 'PAYX', 'MHK', 'PEP', 'VTR', 'EFX', 'BBY', 'CSX', 'EVRG', 'NWL', 'HCA', 'ROL', 'ED', 'AEE', 'KMB', 'UHS', 'KMI', 'PG', 'LRCX', 'ULTA', 'CVS', 'CAG', 'SEE', 'AVB', 'CMA', 'TDY', 'ESS', 'BEN', 'VMC', 'WBD', 'BR', 'ILMN', 'KMX', 'EXPD', 'HPQ', 'AME', 'HOLX', 'DHI', 'CAT', 'BAC', 'RVTY', 'ES', 'SRE', 'MRK', 'APH', 'ADSK', 'NVDA', 'MU', 'C', 'CLX', 'NOW', 'TROW', 'CB', 'DTE', 'GNRC', 'IBM', 'WST', 'APD', 'GEN', 'GOOG', 'NUE', 'LUV', 'PKG', 'MLM', 'RCL', 'TJX', 'CCL', 'DOV', 'GLW', 'SNPS', 'WY', 'KR', 'XYL', 'MNST', 'PARA', 'INTC', 'EXC', 'VFC', 'PNW', 'TTWO', 'NDSN', 'OMC', 'AVY', 'SPGI', 'NKE', 'GWW', 'CTSH', 'OXY', 'TMUS', 'CRL', 'DLR', 'LLY', 'JNPR', 'ELV', 'RF', 'MET', 'ECL', 'CNC', 'EMR', 'DRI', 'CMS', 'PSX', 'T', 'UDR', 'COO', 'CBOE', 'ZBH', 'CHRW', 'SWK', 'PNC', 'FFIV', 'MCD', 'PCAR', 'MMM', 'WBA', 'TSN', 'AMGN', 'NDAQ', 'BALL', 'SLB', 'HIG', 'BDX', 'ORCL', 'REGN', 'DXC', 'AMT', 'AFL', 'EXR', 'MAS', 'USB', 'ETR', 'EQR', 'DAL', 'HAS', 'AEP', 'NVR', 'WDC', 'FDX', 'GIS', 'TFC', 'ANSS', 'BA', 'REG', 'SJM', 'NWS', 'NI', 'LYB', 'IRM', 'DXCM', 'PEG', 'VRSN', 'CNP', 'CTAS', 'TRGP', 'NXPI', 'SCHW', 'LNC', 'EPAM', 'CTRA', 'DE', 'MTD', 'MCHP', 'WMB', 'D', 'AIZ', 'ALK', 'VZ', 'ALGN', 'RE', 'MSFT', 'AES', 'TER', 'AMZN', 'MSCI', 'HII', 'AAPL', 'CDNS', 'COP', 'ALL', 'AIG', 'NWSA', 'ZBRA', 'FE', 'ADM', 'JKHY', 'MCO', 'LHX', 'MKC', 'KO', 'LDOS', 'J', 'MAR', 'CVX']
-
-
-class Asset:
-    def __init__(self, symbol: str):
-        self.symbol = symbol.upper()
-        self.ticker = None
-
-    def __str__(self):
-        return f'{self.symbol}'
-
-    # Fill up NA values when dealing with panda dataframes
-    @staticmethod
-    def fill_na(df) -> object:
-        if df.isna().sum().sum() > 0:
-            df.fillna(method='ffill', inplace=True)
-            df.fillna(method='bfill', inplace=True)
-        return df
-
-    # Fetch ticker information
-    def get_ticker(self, force_update=False) -> yf.Ticker:
-        if force_update or self.ticker is None:
-            self.ticker = yf.Ticker(self.symbol)
-        return self.ticker
-
-    # Fetch timeseries for this symbol
-    def get_timeseries(self, **kwargs) -> pd.DataFrame:
-        print(f'Downloading timeseries for {self.symbol}...')
-        data = yf.download(self.symbol, **kwargs)
-        return pd.DataFrame(data) if not yfs._ERRORS.keys() else None
-
-    # Fetch timeseries and compute returns
-    def get_returns(self, **kwargs) -> pd.DataFrame:
-        series = self.get_timeseries(**kwargs)
-        if series is not None:
-            close = series['Close']
-            assert close.isna().sum().sum() == 0  # Sanity check, should not happen here
-            returns = close.pct_change(
-                fill_method='ffill').rename(self.symbol)
-            # TODO: Figure out why some notation have pct_change multiplied by 100, we omit here: data=data[1:]*100
-            return pd.DataFrame(index=series.index[1:], data=returns[1:])
-        else:
-            return None
-
-    # Compute swing bounds (minimum range, mean range)
-    def get_swing_bounds(self, **kwargs):
-        series = self.get_timeseries(**kwargs)
-        if series is not None:
-            high = Asset.fill_na(series['High'])
-            low = Asset.fill_na(series['Low'])
-            column = high / low - 1.0
-            return column.min(), column.mean()
-        else:
-            return None, None
-
-
 '''
 Portfolio class
 Describes a portfolio of financial assets
 '''
+import pandas as pd
+import numpy as np
+from portcullis.asset import Asset
+from scipy.optimize import minimize
 
 
 class Portfolio:

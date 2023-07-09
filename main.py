@@ -1,4 +1,8 @@
+
 from portcullis.portfolio import Portfolio
+from portcullis.asset import Asset
+from portcullis.util import today
+from portcullis.level import Level
 
 
 def investment_portfolio_sample():
@@ -28,8 +32,10 @@ def swingtrading_portfolio_sample():
 
 
 def main():
-    investment_portfolio_sample()
+    # investment_portfolio_sample()
     # swingtrading_portfolio_sample()
+
+    Level().analyze_and_plot('SMH')
 
 
 if __name__ == "__main__":
