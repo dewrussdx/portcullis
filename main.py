@@ -4,6 +4,10 @@ from portcullis.level import Level
 
 
 def investment_portfolio_sample():
+    Portfolio(['GOOG', 'SBUX', 'KSS', 'NEM']).export_timeseries_to_csv(
+        csv='portfolio.csv',
+        start='2014-01-02',
+        end='2014-07-01')
     start = '2018-07-01'
     interval = '1d'
     # top10_sp500 = Portfolio.filter_top_return_symbols(
@@ -29,12 +33,10 @@ def swingtrading_portfolio_sample():
     print('Mean: %.2f %%' % (max * 100.0))
 
 
-
 def main():
-    # investment_portfolio_sample()
+    investment_portfolio_sample()
     # swingtrading_portfolio_sample()
-
-    #Level().analyze_and_plot('MSFT')
+    # Level().analyze_and_plot('SMH')
 
 
 if __name__ == "__main__":

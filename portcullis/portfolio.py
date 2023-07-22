@@ -170,7 +170,7 @@ class Portfolio:
         for _, value in self._values.items():
             asset = value.asset
             series = asset.get_timeseries(**kwargs)
-            if series:
+            if series is not None:
                 series['Name'] = asset.symbol
                 frames.append(series)
         pd.concat(frames).to_csv(csv)
