@@ -6,7 +6,20 @@ import itertools
 import json
 import ast
 import os
+import argparse
 
+
+parser = argparse.ArgumentParser(
+    prog='Seer',
+    description='RL Trader',
+    epilog='Always manage risk, gl hf!')
+
+parser.add_argument(
+    '-c', '--config', help='Configuration file', default='config.json')
+parser.add_argument(
+    '-o', '--output', help='Output file', default='model.json')
+
+args = parser.parse_args()
 
 # BUY  if (not invested and fastSMA >= slowSMA)
 # SELL if (invested and fastSMA < slowSMA)
@@ -22,7 +35,7 @@ df0.dropna(axis=0, how='all', inplace=True)
 df0.dropna(axis=1, how='any', inplace=True)
 
 df_returns = np.log(df0).diff()
-print(df_returns)
+#print(df_returns)
 
 N = 1000
 train_data = df_returns.iloc[:-N]
@@ -164,7 +177,7 @@ def play_one_episode(agent, env, training):
 
 
 def load(path: str, state_mapper: StateMapper) -> Agent:
-    print(f'Loading model {path}...')
+    print(f'Loading model "{path}"...')
     with open(path, 'r') as handle:
         model = json.loads(handle.read())
     obj = model['agent']
@@ -176,25 +189,8 @@ def load(path: str, state_mapper: StateMapper) -> Agent:
     return agent, stats
 
 
-def save(agent: Agent, path: str, stats: list[dict] = None, train_rewards=None, test_rewards=None) -> None:
-    print(f'Saving model {path}...')
-    if stats is not None:
-        assert train_rewards is not None and test_rewards is not None
-        stats.append({
-            'samples': len(train_rewards),
-            'train_rewards': {
-                'mean': train_rewards.mean(),
-                'std': train_rewards.std(),
-                'var': train_rewards.var(),
-            },
-            'test_rewards': {
-                'mean': test_rewards.mean(),
-                'std': test_rewards.std(),
-                'var': test_rewards.var(),
-            }
-        })
-    else:
-        stats = []
+def save(agent: Agent, path: str, stats: list[dict]) -> None:
+    print(f'Saving model "{path}"...')
     model = {
         'agent': {
             # Q: convert each tuple key to a string before saving as json object
@@ -219,26 +215,32 @@ action_size = len(train_env.action_space)
 state_mapper = StateMapper(train_env)
 
 # --------------------------------------------------------------------
-path = 'model_2.json'
+config = None
+with open(args.config, 'r') as handle:
+    config = json.loads(handle.read())
+assert config is not None
 
 # Check if model file exists
-if not os.path.isfile(path):
+stats = None
+if os.path.isfile(args.output):
+    # Load model from file
+    agent, stats = load(args.output, state_mapper)
+else:
     # Bootstrap and save model
-    agent = Agent(action_size, state_mapper, gamma=0.9995,
-                  epsilon=0.9995, learning_rate=5e-3)
-    save(agent, path)
+    agent, stats = Agent(action_size, state_mapper,
+                         gamma=config['gamma'], epsilon=config['epsilon'], learning_rate=config['learning_rate']), []
+    save(agent, args.output, stats)
+assert agent is not None and stats is not None
 
 # --------------------------------------------------------------------
-num_rounds = 1000
+num_rounds = 100
 for r in range(num_rounds):
-    # Load model from file
-    agent, stats = load(path, state_mapper)
-
-    num_episodes = 1000
+    num_episodes = 500
     train_rewards = np.empty(num_episodes)
     test_rewards = np.empty(num_episodes)
 
-    epsilon_decay_rate = 0.99995
+    min_epsilon = config['min_epsilon']
+    epsilon_decay_rate = config['epsilon_decay_rate']
     for e in range(num_episodes):
         # Train on the train set
         print('Epsilon: '+str(agent.epsilon))
@@ -247,7 +249,28 @@ for r in range(num_rounds):
         # Test on the test set
         tr = play_one_episode(agent, test_env, training=False)
         test_rewards[e] = tr
-        print(f'eps: {e+1}/{num_episodes}, train: {r:.5f}, test:{tr:.5f}')
+        print(f'# {e+1}/{num_episodes}: train: {r:.5f}, -- test:{tr:.5f}')
         # Decay epsilon up to a minimum value
-        agent.epsilon = max(1e-3, agent.epsilon*epsilon_decay_rate)
-    save(agent, path, stats, train_rewards, test_rewards)
+        agent.epsilon = max(min_epsilon, agent.epsilon*epsilon_decay_rate)
+
+    # Append stats for checkpoint
+    # ignore risk-free rate for simplicity
+    sharpe_ratio = test_rewards.mean() / test_rewards.std()
+    stats.append({
+        'samples': len(train_rewards),
+        'train_rewards': {
+            'mean': train_rewards.mean(),
+            'std': train_rewards.std(),
+            'var': train_rewards.var(),
+        },
+        'test_rewards': {
+            'mean': test_rewards.mean(),
+            'std': test_rewards.std(),
+            'var': test_rewards.var(),
+        },
+        'sharpe_ratio': sharpe_ratio,
+    })
+
+    save(agent, args.output, stats)
+
+print('Done.')
