@@ -1,7 +1,5 @@
 
 from portcullis.portfolio import Portfolio
-from portcullis.asset import Asset
-from portcullis.util import today
 from portcullis.level import Level
 
 
@@ -31,11 +29,12 @@ def swingtrading_portfolio_sample():
     print('Mean: %.2f %%' % (max * 100.0))
 
 
+
 def main():
     # investment_portfolio_sample()
     # swingtrading_portfolio_sample()
 
-    Level().analyze_and_plot('SMH')
+    #Level().analyze_and_plot('MSFT')
 
 
 if __name__ == "__main__":
