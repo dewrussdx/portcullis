@@ -167,25 +167,44 @@ def load(path: str, state_mapper: StateMapper) -> Agent:
     print(f'Loading model {path}...')
     with open(path, 'r') as handle:
         model = json.loads(handle.read())
-    agent = model['agent']
-    inst = Agent(agent['action_size'], state_mapper,
-                 agent['gamma'], agent['epsilon'], agent['learning_rate'])
-    inst.Q = {ast.literal_eval(
-        k): v for k, v in json.loads(agent['Q']).items()}
-    return inst
+    obj = model['agent']
+    agent = Agent(obj['action_size'], state_mapper,
+                  obj['gamma'], obj['epsilon'], obj['learning_rate'])
+    agent.Q = {ast.literal_eval(
+        k): v for k, v in json.loads(obj['Q']).items()}
+    stats = model['stats']
+    return agent, stats
 
 
-def save(agent: Agent, path: str) -> None:
+def save(agent: Agent, path: str, stats: list[dict] = None, train_rewards=None, test_rewards=None) -> None:
     print(f'Saving model {path}...')
-    model = {'agent': {
-        # Q: convert each tuple key to a string before saving as json object
-        'Q': json.dumps({str(k): v for k, v in agent.Q.items()}),
-        'action_size': agent.action_size,
-        'gamma': agent.gamma,
-        'epsilon': agent.epsilon,
-        'learning_rate': agent.learning_rate,
-        'explore': agent.explore,
-    },
+    if stats is not None:
+        assert train_rewards is not None and test_rewards is not None
+        stats.append({
+            'samples': len(train_rewards),
+            'train_rewards': {
+                'mean': train_rewards.mean(),
+                'std': train_rewards.std(),
+                'var': train_rewards.var(),
+            },
+            'test_rewards': {
+                'mean': test_rewards.mean(),
+                'std': test_rewards.std(),
+                'var': test_rewards.var(),
+            }
+        })
+    else:
+        stats = []
+    model = {
+        'agent': {
+            # Q: convert each tuple key to a string before saving as json object
+            'Q': json.dumps({str(k): v for k, v in agent.Q.items()}),
+            'action_size': agent.action_size,
+            'gamma': agent.gamma,
+            'epsilon': agent.epsilon,
+            'learning_rate': agent.learning_rate,
+        },
+        'stats': stats,
     }
     with open(path, 'w') as handle:
         handle.write(json.dumps(model))
@@ -200,7 +219,7 @@ action_size = len(train_env.action_space)
 state_mapper = StateMapper(train_env)
 
 # --------------------------------------------------------------------
-path = 'model_1.json'
+path = 'model_2.json'
 
 # Check if model file exists
 if not os.path.isfile(path):
@@ -208,24 +227,27 @@ if not os.path.isfile(path):
     agent = Agent(action_size, state_mapper, gamma=0.9995,
                   epsilon=0.9995, learning_rate=5e-3)
     save(agent, path)
-# Load model from file
-agent = load(path, state_mapper)
 
 # --------------------------------------------------------------------
-num_episodes = 1000
-train_rewards = np.empty(num_episodes)
-test_rewards = np.empty(num_episodes)
-epsilon_decay_rate = 0.99995
-for e in range(num_episodes):
-    # Train on the train set
-    print('Epsilon: '+str(agent.epsilon))
-    r = play_one_episode(agent, train_env, training=True)
-    train_rewards[e] = r
-    # Test on the test set
-    tr = play_one_episode(agent, test_env, training=False)
-    test_rewards[e] = tr
-    print(f'eps: {e+1}/{num_episodes}, train: {r:.5f}, test:{tr:.5f}')
-    # Decay epsilon up to a minimum value
-    agent.epsilon = max(1e-3, agent.epsilon*epsilon_decay_rate)
+num_rounds = 1000
+for r in range(num_rounds):
+    # Load model from file
+    agent, stats = load(path, state_mapper)
 
-save(agent, path)
+    num_episodes = 1000
+    train_rewards = np.empty(num_episodes)
+    test_rewards = np.empty(num_episodes)
+
+    epsilon_decay_rate = 0.99995
+    for e in range(num_episodes):
+        # Train on the train set
+        print('Epsilon: '+str(agent.epsilon))
+        r = play_one_episode(agent, train_env, training=True)
+        train_rewards[e] = r
+        # Test on the test set
+        tr = play_one_episode(agent, test_env, training=False)
+        test_rewards[e] = tr
+        print(f'eps: {e+1}/{num_episodes}, train: {r:.5f}, test:{tr:.5f}')
+        # Decay epsilon up to a minimum value
+        agent.epsilon = max(1e-3, agent.epsilon*epsilon_decay_rate)
+    save(agent, path, stats, train_rewards, test_rewards)
