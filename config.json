@@ -1,7 +1,0 @@
-{
-    "gamma": 0.9,
-    "epsilon": 0.33,
-    "learning_rate": 0.05,
-    "epsilon_decay_rate": 0.999,
-    "min_epsilon": 5e-4
-}

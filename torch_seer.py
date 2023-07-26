@@ -125,12 +125,12 @@ env = EstSPYEnv(train_data, features)
 # TAU is the update rate of the target network
 # LR is the learning rate of the ``AdamW`` optimizer
 BATCH_SIZE = 128
-GAMMA = 0.99
+GAMMA = 0.95
 EPS_START = 0.9
-EPS_END = 0.05
+EPS_END = 0.01
 EPS_DECAY = 1000
 TAU = 0.005
-LR = 1e-4
+LR = 1e-3
 
 
 # Get number of actions from gym action space
@@ -146,10 +146,24 @@ target_net.load_state_dict(policy_net.state_dict())
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
 memory = ReplayMemory(10000)
 
+epsilon = 1.0
+epsilon_min = 0.001
+epsilon_decay_rate = 0.995
 
+
+def select_action(state):
+    if random.random() <= epsilon:
+        return torch.tensor([[env.random_action()]], device=device, dtype=torch.long)
+    else:
+        with torch.no_grad():
+            # t.max(1) will return the largest column value of each row.
+            # second column on max result is index of where max element was
+            # found, so we pick action with the larger expected reward.
+            return policy_net(state).max(1)[1].view(1, 1)
+
+
+"""
 steps_done = 0
-
-
 def select_action(state):
     global steps_done
     sample = random.random()
@@ -164,6 +178,7 @@ def select_action(state):
             return policy_net(state).max(1)[1].view(1, 1)
     else:
         return torch.tensor([[env.random_action()]], device=device, dtype=torch.long)
+"""
 
 
 episode_durations = []
@@ -289,14 +304,17 @@ for i_episode in range(num_episodes):
 
         if terminated:
             episode_durations.append(t + 1)
-            #plot_durations()
+            # plot_durations()
             break
     print('Score: {:.5}'.format(total_reward))
+    print('Epsilon: {:.5}'.format(epsilon))
+    epsilon = max(epsilon_min, epsilon*epsilon_decay_rate)
+
     if (i_episode+1) % 50 == 0:
         print('...Saving checkpoint...')
-        torch.save(target_net.state_dict(), 'target_net_state_dict_'+str(i_episode)+'.dict')
-        torch.save(policy_net.state_dict(), 'policy_net_state_dict_'+str(i_episode)+'.dict')
-        
+        torch.save(target_net.state_dict(), 'target_net_state.tsd')
+        torch.save(policy_net.state_dict(), 'policy_net_state.tsd')
+
 print('Complete')
 plot_durations(show_result=True)
 plt.ioff()
