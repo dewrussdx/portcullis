@@ -1,19 +1,18 @@
 import pandas as pd
 import numpy as np
-import math
 import random
-import matplotlib
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
-from itertools import count
-
+from datetime import datetime
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+import os
+from itertools import count
 
 # set up matplotlib
-is_ipython = 'inline' in matplotlib.get_backend()
+is_ipython = 'inline' in plt.get_backend()
 if is_ipython:
     from IPython import display
 
@@ -146,9 +145,9 @@ target_net.load_state_dict(policy_net.state_dict())
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
 memory = ReplayMemory(10000)
 
-epsilon = 1.0
-epsilon_min = 0.001
-epsilon_decay_rate = 0.995
+epsilon = 0.25
+epsilon_min = 0.0001
+epsilon_decay_rate = 0.999
 
 
 def select_action(state):
@@ -264,18 +263,27 @@ if torch.cuda.is_available():
 else:
     num_episodes = 25000
 
-for i_episode in range(num_episodes):
-    print('Episode: '+str(i_episode))
+load_state = True
+if load_state:
+    target_net.load_state_dict(torch.load('target_net_state.tsd'))
+    target_net.eval()
+    policy_net.load_state_dict(torch.load('policy_net_state.tsd'))
+    policy_net.eval()
+    # suffix = int(datetime.now().timestamp())
+    # os.rename('target_net_state.tsd', 'target_net_state_' + str(suffix) + '.tsd')
+    # os.rename('policy_net_state.tsd', 'policy_net_state_' + str(suffix) + '.tsd')
 
+best_score = 0.0   
+for i_episode in range(num_episodes):
     # Initialize the environment and get it's state
     state = env.reset()
     state = torch.tensor(state, dtype=torch.float32,
                          device=device).unsqueeze(0)
-    total_reward = 0
+    score = 0.0
     for t in count():
         action = select_action(state)
         observation, reward, terminated = env.step(action.item())
-        total_reward += reward
+        score += reward
         reward = torch.tensor([reward], device=device)
 
         if terminated:
@@ -306,10 +314,16 @@ for i_episode in range(num_episodes):
             episode_durations.append(t + 1)
             # plot_durations()
             break
-    print('Score: {:.5}'.format(total_reward))
-    print('Epsilon: {:.5}'.format(epsilon))
+    print(f'#{i_episode}: eps={epsilon:.5}, score={score:.5}, best={best_score:.5}')
     epsilon = max(epsilon_min, epsilon*epsilon_decay_rate)
-
+    if score > best_score:
+        best_score = score
+        if i_episode > 100:
+            print('...saving best model so far...')
+            torch.save(target_net.state_dict(), 
+                       f'target_net_state_{best_score}.tsd')
+            torch.save(policy_net.state_dict(), 
+                       f'policy_net_state_{best_score}.tsd')
     if (i_episode+1) % 50 == 0:
         print('...Saving checkpoint...')
         torch.save(target_net.state_dict(), 'target_net_state.tsd')
