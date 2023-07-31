@@ -48,7 +48,7 @@ class DQNNAgent(Agent):
                  gamma: float = 0.99,
                  eps: float = 1.0,
                  eps_min: float = 5e-2,
-                 eps_decay: float = 0.999,
+                 eps_decay: float = 0.996,
                  tau: float = 5e-3
                  ):
         super().__init__('DQNNAgent')
@@ -62,7 +62,8 @@ class DQNNAgent(Agent):
         self.eps_min = eps_min
         self.eps_decay = eps_decay
         self.tau = tau
-        self.nn_t.load_state_dict(self.nn_p.state_dict())  # Sync networks
+        self.score = 0.0
+        NN.sync_states(self.nn_p, self.nn_t)
         self.optimizer = optim.AdamW(
             self.nn_p.parameters(), lr=self.lr, amsgrad=True)
         self.criterion = nn.SmoothL1Loss()
@@ -155,10 +156,7 @@ class DQNNAgent(Agent):
         if checkpoint is None:
             return
         self.nn_p.load_state_dict(checkpoint['nn_p'])
-        self.nn_t.load_state_dict(checkpoint['nn_t'])
-        self.optimizer.load_state_dict(checkpoint['opt'])
-        self.nn_p.eval()
-        self.nn_t.eval()
+        NN.sync_states(self.nn_p, self.nn_t)
         self.gamma = checkpoint['gamma']
         self.eps = checkpoint['eps']
         self.eps_min = checkpoint['eps_min']
@@ -168,8 +166,6 @@ class DQNNAgent(Agent):
     def save(self, path: str = None, verbose: bool = True) -> None:
         checkpoint = {
             'nn_p': self.nn_p.state_dict(),
-            'nn_t': self.nn_t.state_dict(),
-            'opt': self.optimizer.state_dict(),
             'gamma': self.gamma,
             'eps': self.eps,
             'eps_min': self.eps_min,

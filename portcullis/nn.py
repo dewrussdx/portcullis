@@ -48,6 +48,12 @@ class NN(nn.Module):
             dst_d[key] = src_d[key]*tau + dst_d[key]*(1-tau)
         dst_nn.load_state_dict(dst_d)
 
+    @staticmethod
+    def sync_states(src_nn: nn.Module, dst_nn: nn.Module) -> None:
+        """Synchronize states across networks.
+        """
+        dst_nn.load_state_dict(src_nn.state_dict())
+
 
 """
 Deep Q/Quality Neural Network

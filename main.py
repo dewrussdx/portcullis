@@ -41,16 +41,15 @@ def DRLTest():
     features = ['Close']
     train, _ = Env.split_data(Env.yf_download(
         'AAPL', features=features), test_ratio=0.1)
-    Sim.seed_rng()
     env = Env(train, features=features)
-    nn_p = DQNN(input_size=1, hidden_size=128, output_size=env.num_actions(),
-                seed=Sim.DEFAULT_RNG_SEED, name='DQNN_V')
-    nn_t = DQNN(input_size=1, hidden_size=128, output_size=env.num_actions(),
-                seed=Sim.DEFAULT_RNG_SEED, name='DQNN_T')
-    agent = DQNNAgent(env, nn_p=nn_p, nn_t=nn_t, mem=Mem(131072),
-                      lr=0.001, gamma=0.95, eps=1.0, eps_min=0.001, eps_decay=0.995)
+    nn_p = DQNN(input_size=1, hidden_size=128,
+                output_size=env.num_actions(), name='DQNN_V')
+    nn_t = DQNN(input_size=1, hidden_size=128,
+                output_size=env.num_actions(), name='DQNN_T')
+    agent = DQNNAgent(env, nn_p=nn_p, nn_t=nn_t, mem=Mem(65536),
+                      lr=0.001, gamma=0.99, eps=1.0, eps_min=0.001, eps_decay=0.99)
     sim = Sim(agent)
-    avg_score = sim.run(num_episodes=10000, mem_samples=128)
+    avg_score = sim.run(num_episodes=10000, mem_samples=256)
     print('Average Score:', avg_score)
 
 
