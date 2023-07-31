@@ -20,22 +20,22 @@ class Portfolio:
     # Constructor
     def __init__(self, symbols: list[str] = None):
         self._values = dict()
-        self.sharp_ratio = None
+        self.sharpe_ratio = None
         self.add_symbols(symbols or [])
 
     # Return json string
     def __str__(self):
         out = {}
-        out['sharp_ratio'] = str(self.sharp_ratio)
+        out['sharpe_ratio'] = str(self.sharpe_ratio)
         assets = {}
         for key, value in self._values.items():
             assets[key] = str(value.weight)
         out['assets'] = assets
         return str(out)
 
-    # Calculate sharp ratio
+    # Calculate sharpe ratio
     @staticmethod
-    def calculate_sharp_ratio(weights, cov, mean_return, risk_free_rate=0.0) -> float:
+    def calculate_sharpe_ratio(weights, cov, mean_return, risk_free_rate=0.0) -> float:
         expected_return = weights.dot(mean_return)
         std = np.sqrt(weights.dot(cov).dot(weights))
         return (expected_return-risk_free_rate)/std
@@ -119,7 +119,7 @@ class Portfolio:
             return weights.sum() - 1
 
         # Objective: Minimize the negative Sharp ratio to find the optimal portfolio
-        def objective_minimize_neg_sharp_ratio(weights):
+        def objective_minimize_neg_sharpe_ratio(weights):
             expected_return = weights.dot(mean_return)
             # Variance
             var = weights.dot(cov).dot(weights)
@@ -131,7 +131,7 @@ class Portfolio:
             return -(expected_return-risk_free_rate)/std
 
         result = minimize(
-            fun=objective_minimize_neg_sharp_ratio,
+            fun=objective_minimize_neg_sharpe_ratio,
             x0=np.ones(D) / D,  # Initial guess for the weights
             method='SLSQP',
             constraints=[
@@ -149,13 +149,13 @@ class Portfolio:
         if result.status != 0:
             print(f'*** ERROR: Optimizer failed => {result}')
             return False
-        self.sharp_ratio = -result.fun
+        self.sharpe_ratio = -result.fun
         self._apply_weights(result.x)
         return True
 
     # Return the Sharp retio of this portfolio
-    def get_sharp_ratio(self) -> float:
-        return self.sharp_ratio
+    def get_sharpe_ratio(self) -> float:
+        return self.sharpe_ratio
 
     # Return weights as vector in same order as item dictionary
     def get_weights(self) -> list[float]:
