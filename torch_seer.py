@@ -1,19 +1,18 @@
 import pandas as pd
 import numpy as np
-import math
 import random
-import matplotlib
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
-from itertools import count
-
+from datetime import datetime
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+import os
+from itertools import count
 
 # set up matplotlib
-is_ipython = 'inline' in matplotlib.get_backend()
+is_ipython = 'inline' in plt.get_backend()
 if is_ipython:
     from IPython import display
 
@@ -107,7 +106,7 @@ df = pd.read_csv('sp500_closefull.csv', index_col=0, parse_dates=True)
 df.dropna(axis=0, how='all', inplace=True)
 df.dropna(axis=1, how='any', inplace=True)
 df_returns = np.log(df).diff()
-N = int(len(df_returns)*0.5)
+N = int(len(df_returns)*0.25)
 train_data = df_returns.iloc[1:-N]
 test_data = df_returns.iloc[-N:-1]
 # print(train_data, test_data)
@@ -124,7 +123,7 @@ env = EstSPYEnv(train_data, features)
 # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
 # TAU is the update rate of the target network
 # LR is the learning rate of the ``AdamW`` optimizer
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 GAMMA = 0.95
 EPS_START = 0.9
 EPS_END = 0.01
@@ -146,9 +145,9 @@ target_net.load_state_dict(policy_net.state_dict())
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
 memory = ReplayMemory(10000)
 
-epsilon = 1.0
-epsilon_min = 0.001
-epsilon_decay_rate = 0.995
+epsilon = 0.2
+epsilon_min = 0.0005
+epsilon_decay_rate = 0.985
 
 
 def select_action(state):
@@ -264,21 +263,30 @@ if torch.cuda.is_available():
 else:
     num_episodes = 25000
 
-for i_episode in range(num_episodes):
-    print('Episode: '+str(i_episode))
+load_state = True
+if load_state:
+    target_net.load_state_dict(torch.load('target_net_state.tsd'))
+    target_net.eval()
+    policy_net.load_state_dict(torch.load('policy_net_state.tsd'))
+    policy_net.eval()
+    # suffix = int(datetime.now().timestamp())
+    # os.rename('target_net_state.tsd', 'target_net_state_' + str(suffix) + '.tsd')
+    # os.rename('policy_net_state.tsd', 'policy_net_state_' + str(suffix) + '.tsd')
 
+best_score = 0.0   
+for i_episode in range(num_episodes):
     # Initialize the environment and get it's state
     state = env.reset()
     state = torch.tensor(state, dtype=torch.float32,
                          device=device).unsqueeze(0)
-    total_reward = 0
+    score = 0.0
     for t in count():
         action = select_action(state)
-        observation, reward, terminated = env.step(action.item())
-        total_reward += reward
+        observation, reward, done = env.step(action.item())
+        score += reward
         reward = torch.tensor([reward], device=device)
 
-        if terminated:
+        if done:
             next_state = None
         else:
             next_state = torch.tensor(
@@ -302,14 +310,21 @@ for i_episode in range(num_episodes):
                 TAU + target_net_state_dict[key]*(1-TAU)
         target_net.load_state_dict(target_net_state_dict)
 
-        if terminated:
+        if done:
             episode_durations.append(t + 1)
             # plot_durations()
             break
-    print('Score: {:.5}'.format(total_reward))
-    print('Epsilon: {:.5}'.format(epsilon))
+    
+    print(f'#{i_episode}: eps={epsilon:.5}, score={score:.5}, best={best_score:.5}')
     epsilon = max(epsilon_min, epsilon*epsilon_decay_rate)
-
+    if score > best_score:
+        best_score = score
+        if i_episode > 50:
+            print('...saving best model so far...')
+            torch.save(target_net.state_dict(), 
+                       f'target_net_state_{best_score}.tsd')
+            torch.save(policy_net.state_dict(), 
+                       f'policy_net_state_{best_score}.tsd')
     if (i_episode+1) % 50 == 0:
         print('...Saving checkpoint...')
         torch.save(target_net.state_dict(), 'target_net_state.tsd')
