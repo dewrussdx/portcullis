@@ -32,12 +32,12 @@ class Sim():
                 score += reward
             if score > hiscore:
                 hiscore = score
-                # self.agent.save()
+                self.agent.save()
             self.agent.learn(mem_samples=mem_samples)
             avg_score += score
             eps = self.agent.adj_eps()
-            print('#', i + 1, 'Score:', score, 'Eps', eps, 'Mem',
-                  len(self.agent.mem), '/', self.agent.mem.capacity)
+            print('#', i + 1, 'Score:', score, 'Eps',
+                  eps, 'Mem', len(self.agent.mem))
         return avg_score / float(num_episodes)
 
     @staticmethod

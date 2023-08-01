@@ -34,26 +34,28 @@ class Agent():
 
 
 class DQNNAgent(Agent):
-    """Deep Quality Neural Network. This implementation uses separate value and target NN for stability.
+    """Deep Quality Neural Network. This implementation uses separate value and target 
+    networks for stability.
     """
 
     def __init__(self,
                  env: Env,
-                 nn_p: DQNN,
-                 nn_t: DQNN,
-                 mem: Mem,
+                 mem: Mem = Mem(65336),
+                 hdims: (int, int) = (256, 128),
+                 lr: float = 0.001,
                  gamma: float = 0.99,
                  eps: float = 1.0,
-                 eps_min: float = 5e-2,
-                 eps_decay: float = 0.996,
-                 tau: float = 5e-3,
-                 training: bool = True
+                 eps_min: float = 0.01,
+                 eps_decay: float = 0.99,
+                 tau: float = 0.005,
+                 training: bool = True,
+                 name: str = 'DQNNAgent'
                  ):
-        super().__init__('DQNNAgent')
+        super().__init__(name)
         self.env = env
-        self.nn_p = nn_p  # Policy NN
-        self.nn_t = nn_t  # Target NN
         self.mem = mem
+        self.hdims = hdims
+        self.lr = lr
         self.gamma = gamma
         self.eps = eps
         self.eps_min = eps_min
@@ -61,6 +63,10 @@ class DQNNAgent(Agent):
         self.tau = tau
         self.training = training
         self.criterion = torch.nn.MSELoss()
+        self.nn_p = DQNN(self.env.num_features(), self.hdims,
+                         self.env.num_actions(), self.lr, name='DQNN_Policy')
+        self.nn_t = DQNN(self.env.num_features(), self.hdims,
+                         self.env.num_actions(), self.lr, name='DQNN_Policy')
         self._init_nn()
 
     def _init_nn(self):

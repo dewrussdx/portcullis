@@ -64,16 +64,19 @@ pyTorch Implementation
 
 class DQNN(NN):
     # Initialize NN with input, hidden and output layers
-    def __init__(self, input_size: int, hidden_size: int, output_size: int, lr: float = 1e-4, seed: int = None, name: str = None) -> None:
+    def __init__(self, input_size: int, hdims: (int, int), output_size: int,
+                 lr: float = 1e-4, seed: int = None, name: str = None) -> None:
         super().__init__(name)
         self.input_size = input_size
-        self.hidden_size = hidden_size
+        self.hdims = hdims
         self.output_size = output_size
         self.lr = lr
+        self.seed = seed
+        self.name = name
         self.seed = torch.manual_seed(seed) if seed else None
-        self.fc1 = nn.Linear(self.input_size, self.hidden_size)
-        self.fc2 = nn.Linear(self.hidden_size, self.hidden_size)
-        self.fc3 = nn.Linear(self.hidden_size, self.output_size)
+        self.fc1 = nn.Linear(self.input_size, self.hdims[0])
+        self.fc2 = nn.Linear(self.hdims[0], self.hdims[1])
+        self.fc3 = nn.Linear(self.hdims[1], self.output_size)
         self.optimizer = optim.Adam(self.parameters(), lr=self.lr)
         self.to(DEVICE)
 

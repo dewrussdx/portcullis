@@ -1,11 +1,12 @@
 
+import numpy as np
 from portcullis.sim import Sim
 from portcullis.mem import Mem
 from portcullis.agent import DQNNAgent
 from portcullis.nn import DQNN
-from portcullis.env import Env
+from portcullis.env import Env, DaleTrader
 from portcullis.portfolio import Portfolio
-from portcullis.ind import EWMA, CMA, SMA
+from portcullis.ta import SMA, EWMA
 
 
 def investment_portfolio_sample():
@@ -29,7 +30,6 @@ def swingtrading_portfolio_sample():
     portfolio = Portfolio([
         'SMH', 'XBI', 'META'
     ])
-
     asset = portfolio['META'].asset
     min_b, max_b = asset.get_swing_bounds(
         start='2018-07-01', interval='1wk') or (0, 0)
@@ -39,21 +39,15 @@ def swingtrading_portfolio_sample():
 
 
 def DRLTest():
-    df, features = Env.yf_download(
-        'AAPL', features=['Close'], indicators=[EWMA(8)])
-    train, _ = Env.split_data(df, test_ratio=0.1)
-    print(train)
-
-    env = Env(train, features=features)
-    nn_p = DQNN(input_size=len(features), hidden_size=128,
-                output_size=env.num_actions(), lr=1e-4, name='DQNN_V')
-    nn_t = DQNN(input_size=len(features), hidden_size=128,
-                output_size=env.num_actions(), lr=1e-4, name='DQNN_T')
-    agent = DQNNAgent(env, nn_p=nn_p, nn_t=nn_t, mem=Mem(100_000),
-                      gamma=0.95, eps=1.0, eps_min=0.0005, eps_decay=0.995,
+    df = Env.yf_download('AAPL', ta=[EWMA(8), EWMA(20), SMA(15), SMA(45)])
+    print(df)
+    train, _ = Env.split_data(df, test_ratio=0.2)
+    env = DaleTrader(train, balance=50_000)
+    agent = DQNNAgent(env, mem=Mem(1_000_000), hdims=(512, 256), lr=0.001,
+                      gamma=0.95, eps=1.0, eps_min=0.0001, eps_decay=0.9995,
                       tau=0.005, training=True)
     sim = Sim(agent)
-    avg_score = sim.run(mem_samples=256)
+    avg_score = sim.run(num_episodes=20_000, mem_samples=4_096)
     print('Average Score:', avg_score)
 
 
