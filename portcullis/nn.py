@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import os
 import torch.nn.functional as F
+import torch.optim as optim
 
 DEVICE = torch.device(
     'cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -34,7 +35,7 @@ class NN(nn.Module):
         if os.path.exists(path):
             if verbose:
                 print('Loading model from', path)
-            self.load_state_dict(torch.load(path))
+            self.load_state_dict(torch.load(path, map_location=DEVICE))
             self.eval()
 
     @staticmethod
@@ -63,15 +64,17 @@ pyTorch Implementation
 
 class DQNN(NN):
     # Initialize NN with input, hidden and output layers
-    def __init__(self, input_size: int, hidden_size: int, output_size: int, seed: int = None, name: str = None) -> None:
+    def __init__(self, input_size: int, hidden_size: int, output_size: int, lr: float = 1e-4, seed: int = None, name: str = None) -> None:
         super().__init__(name)
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size = output_size
+        self.lr = lr
         self.seed = torch.manual_seed(seed) if seed else None
         self.fc1 = nn.Linear(self.input_size, self.hidden_size)
         self.fc2 = nn.Linear(self.hidden_size, self.hidden_size)
         self.fc3 = nn.Linear(self.hidden_size, self.output_size)
+        self.optimizer = optim.Adam(self.parameters(), lr=self.lr)
         self.to(DEVICE)
 
     # Called with either one element to determine next action, or a batch

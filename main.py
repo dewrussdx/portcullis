@@ -5,6 +5,7 @@ from portcullis.agent import DQNNAgent
 from portcullis.nn import DQNN
 from portcullis.env import Env
 from portcullis.portfolio import Portfolio
+from portcullis.ind import EWMA, CMA, SMA
 
 
 def investment_portfolio_sample():
@@ -38,18 +39,21 @@ def swingtrading_portfolio_sample():
 
 
 def DRLTest():
-    features = ['Close']
-    train, _ = Env.split_data(Env.yf_download(
-        'AAPL', features=features), test_ratio=0.1)
+    df, features = Env.yf_download(
+        'AAPL', features=['Close'], indicators=[EWMA(8)])
+    train, _ = Env.split_data(df, test_ratio=0.1)
+    print(train)
+
     env = Env(train, features=features)
-    nn_p = DQNN(input_size=1, hidden_size=128,
-                output_size=env.num_actions(), name='DQNN_V')
-    nn_t = DQNN(input_size=1, hidden_size=128,
-                output_size=env.num_actions(), name='DQNN_T')
-    agent = DQNNAgent(env, nn_p=nn_p, nn_t=nn_t, mem=Mem(65536),
-                      lr=0.001, gamma=0.99, eps=1.0, eps_min=0.001, eps_decay=0.99)
+    nn_p = DQNN(input_size=len(features), hidden_size=128,
+                output_size=env.num_actions(), lr=1e-4, name='DQNN_V')
+    nn_t = DQNN(input_size=len(features), hidden_size=128,
+                output_size=env.num_actions(), lr=1e-4, name='DQNN_T')
+    agent = DQNNAgent(env, nn_p=nn_p, nn_t=nn_t, mem=Mem(100_000),
+                      gamma=0.95, eps=1.0, eps_min=0.0005, eps_decay=0.995,
+                      tau=0.005, training=True)
     sim = Sim(agent)
-    avg_score = sim.run(num_episodes=10000, mem_samples=256)
+    avg_score = sim.run(mem_samples=256)
     print('Average Score:', avg_score)
 
 

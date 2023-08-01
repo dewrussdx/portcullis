@@ -2,6 +2,8 @@
 from portcullis.agent import Agent
 from portcullis.env import Env
 import random
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 class Sim():
@@ -10,7 +12,10 @@ class Sim():
     def __init__(self, agent: Agent):
         self.agent = agent
 
-    def run(self, num_episodes: int, mem_samples: int) -> float:
+    def plot(self):
+        pass
+
+    def run(self, num_episodes: int = 1_000, mem_samples: int = 64) -> float:
         self.agent.load()
         avg_score = 0.0
         hiscore = 0.0
@@ -27,11 +32,12 @@ class Sim():
                 score += reward
             if score > hiscore:
                 hiscore = score
-                self.agent.save()
+                # self.agent.save()
             self.agent.learn(mem_samples=mem_samples)
             avg_score += score
             eps = self.agent.adj_eps()
-            print('#', i + 1, 'Score:', score, 'Eps', eps)
+            print('#', i + 1, 'Score:', score, 'Eps', eps, 'Mem',
+                  len(self.agent.mem), '/', self.agent.mem.capacity)
         return avg_score / float(num_episodes)
 
     @staticmethod

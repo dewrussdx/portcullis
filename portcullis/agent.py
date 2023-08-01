@@ -1,10 +1,8 @@
 import numpy as np
 import torch
-import torch.optim as optim
-import torch.nn as nn
 from portcullis.nn import NN, DQNN, DEVICE
 from portcullis.env import Env, Action, State
-from portcullis.mem import Mem, Frag
+from portcullis.mem import Mem
 from collections import namedtuple
 import os
 
@@ -31,7 +29,7 @@ class Agent():
         if os.path.exists(path):
             if verbose:
                 print('Loading agent from', path, '...')
-            return torch.load(path)
+            return torch.load(path, map_location=DEVICE)
         return None
 
 
@@ -44,29 +42,36 @@ class DQNNAgent(Agent):
                  nn_p: DQNN,
                  nn_t: DQNN,
                  mem: Mem,
-                 lr: float = 1e-4,
                  gamma: float = 0.99,
                  eps: float = 1.0,
                  eps_min: float = 5e-2,
                  eps_decay: float = 0.996,
-                 tau: float = 5e-3
+                 tau: float = 5e-3,
+                 training: bool = True
                  ):
         super().__init__('DQNNAgent')
         self.env = env
         self.nn_p = nn_p  # Policy NN
         self.nn_t = nn_t  # Target NN
         self.mem = mem
-        self.lr = lr
         self.gamma = gamma
         self.eps = eps
         self.eps_min = eps_min
         self.eps_decay = eps_decay
         self.tau = tau
-        self.score = 0.0
+        self.training = training
+        self.criterion = torch.nn.MSELoss()
+        self._init_nn()
+
+    def _init_nn(self):
+        # Always disable learning mode for target network
+        self.nn_t.eval()
+        # For policy network check the learn_mode flag
+        if self.training:
+            self.nn_p.train()
+        else:
+            self.nn_p.eval()
         NN.sync_states(self.nn_p, self.nn_t)
-        self.optimizer = optim.AdamW(
-            self.nn_p.parameters(), lr=self.lr, amsgrad=True)
-        self.criterion = nn.SmoothL1Loss()
 
     def adj_eps(self) -> float:
         """Adjust exploration rate (epsilon-greedy).
@@ -78,90 +83,81 @@ class DQNNAgent(Agent):
         # Sample memory
         if len(self.mem) < mem_samples:
             return
+        # Convert from AoS to SoA and move to device memory
+        # TODO: Optimize
         frags = self.mem.sample(mem_samples)
+        states = torch.from_numpy(
+            np.vstack([e.state for e in frags])).float().to(DEVICE)
+        actions = torch.from_numpy(
+            np.vstack([e.action for e in frags])).long().to(DEVICE)
+        rewards = torch.from_numpy(
+            np.vstack([e.reward for e in frags])).float().to(DEVICE)
+        next_states = torch.from_numpy(
+            np.vstack([e.next_state for e in frags])).float().to(DEVICE)
+        dones = torch.from_numpy(
+            np.vstack([e.done for e in frags])).long().to(DEVICE)
 
-        # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
-        # detailed explanation). This converts batch-array of Frag
-        # to Frag of batch-arrays (AoS => SoA.)
-        batch = Frag(*zip(*frags))
+        # get q values of the actions that were taken, i.e calculate qpred;
+        # actions vector has to be explicitly reshaped to nx1-vector
+        q_pred = self.nn_p.forward(states).gather(1, actions.view(-1, 1))
 
-        # Compute a mask of non-final states and concatenate the batch elements
-        # (a final state would've been the one after which simulation ended)
-        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-                                            batch.next_state)), device=DEVICE, dtype=torch.bool)
-        non_final_next_states = torch.cat([s for s in batch.next_state
-                                           if s is not None])
-        state_batch = torch.cat(batch.state)
-        action_batch = torch.cat(batch.action)
-        reward_batch = torch.cat(batch.reward)
+        # calculate target q-values, such that yj = rj + q(s', a'), but if current state is a terminal state, then yj = rj
+        # because max returns data structure with values and indices
+        q_target = self.nn_t.forward(next_states).max(
+            dim=1).values.unsqueeze(1)
 
-        # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
-        # columns of actions taken. These are the actions which would've been taken
-        # for each batch state according to policy_net
-        state_action_values = self.nn_p(state_batch).gather(1, action_batch)
+        # setting Q(s',a') to 0 when the current state is a terminal state
+        q_target[dones] = 0.0
+        y_j = rewards + (self.gamma * q_target)
 
-        # Compute V(s_{t+1}) for all next states.
-        # Expected values of actions for non_final_next_states are computed based
-        # on the "older" target_net; selecting their best reward with max(1)[0].
-        # This is merged based on the mask, such that we'll have either the expected
-        # state value or 0 in case the state was final.
-        next_state_values = torch.zeros(mem_samples, device=DEVICE)
-        with torch.no_grad():
-            next_state_values[non_final_mask] = self.nn_t(
-                non_final_next_states).max(1)[0]
-        # Compute the expected Q values
-        expected_state_action_values = (
-            next_state_values * self.gamma) + reward_batch
-
-        # Compute Huber loss
-        loss = self.criterion(state_action_values,
-                              expected_state_action_values.unsqueeze(1))
-
-        # Optimize the model and apply in-place gradient clipping
-        self.optimizer.zero_grad()
+        # calculate the loss as the mean-squared error of yj and qpred
+        self.nn_p.optimizer.zero_grad()
+        loss = self.criterion(y_j, q_pred)
         loss.backward()
-        torch.nn.utils.clip_grad_value_(self.nn_p.parameters(), 100)
-        self.optimizer.step()
+        self.nn_p.optimizer.step()
+
         # Target network soft update
         NN.soft_update(self.nn_p, self.nn_t, self.tau)
 
     def act(self, state) -> Action:
         """Returns action for given state as per current policy.
         """
-        if np.random.rand() > self.eps:
-            state = torch.tensor(state, dtype=torch.float32,
-                                 device=DEVICE).unsqueeze(0)
-            with torch.no_grad():
-                # t.max(1) will return the largest column value of each row.
-                # second column on max result is index of where max element was
-                # found, so we pick action with the larger expected reward.
-                return self.nn_p(state).max(1)[1].view(1, 1)
-        # Explore environment with a random action
-        return torch.tensor([[self.env.random_action()]], device=DEVICE, dtype=torch.long)
+        if np.random.rand() <= self.eps:  # amount of exploration reduces with the epsilon value
+            return self.env.random_action()
+
+        if not torch.is_tensor(state):
+            state = torch.tensor(
+                np.array(state), dtype=torch.float32, device=DEVICE)
+
+        # pick the action with maximum Q-value as per the policy Q-network
+        with torch.no_grad():
+            action = self.nn_p.forward(state)
+            # since actions are discrete, return index that has highest Q
+            return torch.argmax(action).item()
 
     def remember(self, state: State, action: Action, reward: float, next_state: State, done: bool) -> None:
-
         # Convert to torch tensors
-        # Note: Action 'action' already converted through act()
-        state = torch.tensor(state, dtype=torch.float32,
-                             device=DEVICE).unsqueeze(0)
-        reward = torch.tensor([reward], device=DEVICE)
-        next_state = torch.tensor(
-            next_state, dtype=torch.float32, device=DEVICE).unsqueeze(0) if not done else None
-        # Memorize
-        self.mem.push(state, action, reward, next_state)
+        # state = torch.tensor(state, dtype=torch.float32, device=DEVICE)
+        # action = torch.tensor(action, dtype=torch.long, device=DEVICE)
+        # next_state = torch.tensor(
+        #    next_state, dtype=torch.float32, device=DEVICE)
+        # reward = torch.tensor(reward, dtype=torch.float32, device=DEVICE)
+        # done = torch.tensor(done, dtype=torch.bool, device=DEVICE)
+        self.mem.push(state, action, reward, next_state, int(done))
 
     def load(self, path: str = None, verbose: bool = True) -> None:
         checkpoint = super()._load(path, verbose=verbose)
         if checkpoint is None:
             return
         self.nn_p.load_state_dict(checkpoint['nn_p'])
-        NN.sync_states(self.nn_p, self.nn_t)
         self.gamma = checkpoint['gamma']
         self.eps = checkpoint['eps']
         self.eps_min = checkpoint['eps_min']
         self.eps_decay = checkpoint['eps_decay']
         self.tau = checkpoint['tau']
+        self.training = checkpoint['training']
+        self.mem.clear()
+        self._init_nn()
 
     def save(self, path: str = None, verbose: bool = True) -> None:
         checkpoint = {
@@ -171,5 +167,6 @@ class DQNNAgent(Agent):
             'eps_min': self.eps_min,
             'eps_decay': self.eps_decay,
             'tau': self.tau,
+            'training': self.training,
         }
         super()._save(checkpoint, path, verbose=verbose)
