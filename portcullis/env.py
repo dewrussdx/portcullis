@@ -21,13 +21,15 @@ class Env():
         # FIXME: Not sure if numpy infers datatype properly from pandas
         self.observation_space = self.df.to_numpy()
         self.max_steps = len(self.observation_space) - 1
+        self.seed = None
         self.reset()
 
     def step(self, _action: Action) -> tuple[State, float, bool, any, any]:
         assert False and "Step not implemented in base environment."
 
     def reset(self, seed: int = None) -> tuple[State, any]:
-        if seed:
+        if seed is not None:
+            self.seed = seed
             manual_seed(seed)
             random.seed(seed)
             np.random.seed(seed)

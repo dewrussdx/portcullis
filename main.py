@@ -56,8 +56,8 @@ def create_gym_sim(name: str = 'CartPole-v1', render_mode='human') -> any:
 
 
 def main():
-    # agent = create_gym_sim()
-    agent = create_native_sim()
+    agent = create_gym_sim()
+    # agent = create_native_sim()
     sim = Sim(agent)
     sim.run(num_episodes=10_000, mem_samples=128, training=True) # EVAL: seed=42
 
