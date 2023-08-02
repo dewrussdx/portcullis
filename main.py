@@ -1,5 +1,3 @@
-
-import numpy as np
 from portcullis.sim import Sim
 from portcullis.mem import Mem
 from portcullis.agent import DQNNAgent
@@ -38,24 +36,30 @@ def swingtrading_portfolio_sample():
     print('Mean: %.2f %%' % (max_b * 100.0))
 
 
-def DRLTest():
+def create_native_sim():
     df = Env.yf_download('AAPL', ta=[EWMA(8), EWMA(20), SMA(15), SMA(45)])
-    print(df)
     train, _ = Env.split_data(df, test_ratio=0.2)
     env = DaleTrader(train, balance=50_000)
-    agent = DQNNAgent(env, mem=Mem(1_000_000), hdims=(512, 256), lr=0.001,
-                      gamma=0.95, eps=1.0, eps_min=0.0001, eps_decay=0.9995,
+    agent = DQNNAgent(env, mem=Mem(50_000), hdims=(512, 256), lr=1e-5,
+                      gamma=0.99, eps=1.0, eps_min=0.01, eps_decay=0.999999,
+                      tau=0.001, training=True)
+    return agent
+
+
+def create_gym_sim(name: str = 'CartPole-v1', render_mode='human') -> any:
+    import gymnasium as gym
+    env = gym.make(name, render_mode=render_mode)
+    agent = DQNNAgent(env, mem=Mem(50_000), hdims=(512, 256), lr=1e-4,
+                      gamma=0.99, eps=0.9, eps_min=0.01, eps_decay=0.9999,
                       tau=0.005, training=True)
-    sim = Sim(agent)
-    avg_score = sim.run(num_episodes=20_000, mem_samples=4_096)
-    print('Average Score:', avg_score)
+    return agent
 
 
 def main():
-    # investment_portfolio_sample()
-    # swingtrading_portfolio_sample()
-    # Level().analyze_and_plot('SMH')
-    DRLTest()
+    # agent = create_gym_sim()
+    agent = create_native_sim()
+    sim = Sim(agent)
+    sim.run(num_episodes=10_000, mem_samples=128, training=True) # EVAL: seed=42
 
 
 if __name__ == "__main__":

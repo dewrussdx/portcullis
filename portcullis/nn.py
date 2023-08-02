@@ -7,21 +7,17 @@ import torch.nn as nn
 import os
 import torch.nn.functional as F
 import torch.optim as optim
-
-DEVICE = torch.device(
-    'cuda:0' if torch.cuda.is_available() else 'cpu')
+from portcullis.pytorch import DEVICE
 
 
 class NN(nn.Module):
-    DEFAULT_PATH = './models/model.pytorch'
-
     def __init__(self, name: str):
         super().__init__()
         self.name = name
 
     # Save model state
     def save(self, path: str = None, verbose: bool = True):
-        path = path or NN.DEFAULT_PATH
+        path = path or f'./models/{self.name}.torch'
         if verbose:
             print('Saving model to', path)
         dir_name = os.path.dirname(path)
@@ -31,7 +27,7 @@ class NN(nn.Module):
 
     # Load model state
     def load(self, path: str = None, verbose: bool = True):
-        path = path or NN.DEFAULT_PATH
+        path = path or f'./models/{self.name}.torch'
         if os.path.exists(path):
             if verbose:
                 print('Loading model from', path)
@@ -65,15 +61,13 @@ pyTorch Implementation
 class DQNN(NN):
     # Initialize NN with input, hidden and output layers
     def __init__(self, input_size: int, hdims: (int, int), output_size: int,
-                 lr: float = 1e-4, seed: int = None, name: str = None) -> None:
+                 lr: float = 1e-4, name: str = None) -> None:
         super().__init__(name)
         self.input_size = input_size
         self.hdims = hdims
         self.output_size = output_size
         self.lr = lr
-        self.seed = seed
         self.name = name
-        self.seed = torch.manual_seed(seed) if seed else None
         self.fc1 = nn.Linear(self.input_size, self.hdims[0])
         self.fc2 = nn.Linear(self.hdims[0], self.hdims[1])
         self.fc3 = nn.Linear(self.hdims[1], self.output_size)

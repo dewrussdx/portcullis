@@ -3,7 +3,7 @@ import numpy as np
 import random
 
 Frag = namedtuple(
-    'Fragment', ('state', 'action', 'reward', 'next_state', 'done'))
+    'Fragment', ('state', 'action', 'reward', 'next_state'))
 
 
 class Mem():
@@ -22,4 +22,7 @@ class Mem():
         self.fragments.clear()
 
     def __len__(self) -> int:
+        return self.size()
+
+    def size(self) -> int:
         return len(self.fragments)
