@@ -24,7 +24,7 @@ class Env():
         self.seed = None
         self.reset()
 
-    def step(self, _action: Action) -> tuple[State, float, bool, any, any]:
+    def step(self, _action: Action) -> tuple[State, float, bool, bool, any]:
         assert False and "Step not implemented in base environment."
 
     def reset(self, seed: int = None) -> tuple[State, any]:
@@ -90,7 +90,7 @@ class DaleTrader(Env):
         self.invested = 0
         return super().reset(seed)
 
-    def step(self, action: Action) -> tuple[State, float, bool, any, any]:
+    def step(self, action: Action) -> tuple[State, float, bool, bool, any]:
         assert Env.NONE <= action <= Env.SELL
         self.index += 1
         assert self.index <= self.max_steps
@@ -111,4 +111,4 @@ class DaleTrader(Env):
         # Return (state, reward, done)
         next_state = self.observation_space[self.index]
         done = self.index >= self.max_steps
-        return next_state, reward, done, None, None
+        return next_state, reward, done, False, None

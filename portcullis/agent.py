@@ -1,10 +1,11 @@
 import numpy as np
 import torch
-from portcullis.nn import NN, DQNN
+from portcullis.nn import NN, DQNN, ActorNN, CriticNN
 from portcullis.env import Env, Action, State
 from portcullis.mem import Mem, Frag
 from portcullis.pytorch import DEVICE
 import os
+import copy
 
 
 class Agent():
@@ -27,8 +28,8 @@ class Agent():
         self.name = name
         self.epochs = 0
         self.scores = []
-        self.high_score = 0.0
-        self.gym_env = (type(self.env.action_space).__name__ == 'Discrete')
+        self.high_score = -1e10
+        self.gym_env = (type(self.env.action_space).__name__ == 'Discrete') # FIXME: Only detects discrete action space envs
         if self.gym_env:
             self.num_actions = self.env.action_space.n
             self.num_features = self.env.observation_space.shape[0]
@@ -38,7 +39,7 @@ class Agent():
 
     # Save agent state
     def save(self, checkpoint: dict, path: str, verbose: bool, seed: int) -> None:
-        path = path or f'./models/{self.name}.torch'
+        path = path or f'./models/{self.name}_{DEVICE}.torch'
         dir_name = os.path.dirname(path)
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
@@ -57,12 +58,13 @@ class Agent():
             'high_score': self.high_score,
         })
         if verbose:
-            print(f'Saving agent {path}: Epochs={self.epochs}, Score={self.high_score}')
+            print(
+                f'Saving agent {path}: Epochs={self.epochs}, Score={self.high_score}')
         torch.save(checkpoint, path)
 
     # Load agent state
     def load(self, path: str, verbose: bool, training: bool) -> dict:
-        path = path or f'./models/{self.name}.torch'
+        path = path or f'./models/{self.name}_{DEVICE}.torch'
         if not os.path.exists(path):
             return None
         checkpoint = torch.load(path, map_location=DEVICE)
@@ -82,7 +84,8 @@ class Agent():
         self.env.reset(seed=seed)
         self.mem.clear()
         if verbose:
-            print(f'Loaded agent {path}: Epochs={self.epochs}, Score={self.high_score}')
+            print(
+                f'Loaded agent {path}: Epochs={self.epochs}, Score={self.high_score}')
         return checkpoint
 
     def is_highscore(self, score: float) -> bool:
@@ -118,7 +121,7 @@ class DQNNAgent(Agent):
                  tau: float = 0.005,
                  training: bool = True,
                  name: str = 'DQNNAgent'
-                 ):        
+                 ):
         super().__init__(env, mem, hdims, lr, gamma, eps,
                          eps_min, eps_decay, tau, training, name)
         self.nn_p = DQNN(self.num_features, self.hdims, self.num_actions,
@@ -240,7 +243,7 @@ class DQNNAgent(Agent):
             self.nn_p.optimizer.load_state_dict(checkpoint['opt_p'])
             self.nn_t.load_state_dict(checkpoint['nn_p'])
             self.nn_t.optimizer.load_state_dict(checkpoint['opt_t'])
-            self.criterion = checkpoint['criterion']        
+            self.criterion = checkpoint['criterion']
             self._configure_nn()
 
     def save(self, path: str = None, verbose: bool = True, seed: int = None) -> None:
@@ -254,3 +257,114 @@ class DQNNAgent(Agent):
             'criterion': self.criterion,
         }
         super().save(checkpoint, path, verbose=verbose, seed=seed)
+
+
+class TD3Agent(Agent):
+    def __init__(
+            self,
+            state_dim,
+            action_dim,
+            max_action,
+            discount=0.99,
+            tau=0.005,
+            policy_noise=0.2,
+            noise_clip=0.5,
+            policy_freq=2
+    ):
+
+        self.actor = ActorNN(state_dim, action_dim, max_action).to(DEVICE)
+        self.actor_target = copy.deepcopy(self.actor)
+        self.actor_optimizer = torch.optim.Adam(
+            self.actor.parameters(), lr=3e-4)
+
+        self.critic = CriticNN(state_dim, action_dim).to(DEVICE)
+        self.critic_target = copy.deepcopy(self.critic)
+        self.critic_optimizer = torch.optim.Adam(
+            self.critic.parameters(), lr=3e-4)
+
+        self.max_action = max_action
+        self.discount = discount
+        self.tau = tau
+        self.policy_noise = policy_noise
+        self.noise_clip = noise_clip
+        self.policy_freq = policy_freq
+
+        self.total_it = 0
+
+    def select_action(self, state):
+        state = torch.FloatTensor(state.reshape(1, -1)).to(DEVICE)
+        return self.actor(state).cpu().data.numpy().flatten()
+
+    def train(self, replay_buffer, batch_size=256):
+        self.total_it += 1
+
+        # Sample replay buffer
+        state, action, next_state, reward, not_done = replay_buffer.sample(
+            batch_size)
+
+        with torch.no_grad():
+            # Select action according to policy and add clipped noise
+            noise = (
+                torch.randn_like(action) * self.policy_noise
+            ).clamp(-self.noise_clip, self.noise_clip)
+
+            next_action = (
+                self.actor_target(next_state) + noise
+            ).clamp(-self.max_action, self.max_action)
+
+            # Compute the target Q value
+            target_Q1, target_Q2 = self.critic_target(next_state, next_action)
+            target_Q = torch.min(target_Q1, target_Q2)
+            target_Q = reward + not_done * self.discount * target_Q
+
+        # Get current Q estimates
+        current_Q1, current_Q2 = self.critic(state, action)
+
+        # Compute critic loss
+        critic_loss = F.mse_loss(current_Q1, target_Q) + \
+            F.mse_loss(current_Q2, target_Q)
+
+        # Optimize the critic
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+
+        # Delayed policy updates
+        if self.total_it % self.policy_freq == 0:
+
+            # Compute actor losse
+            actor_loss = -self.critic.Q1(state, self.actor(state)).mean()
+
+            # Optimize the actor
+            self.actor_optimizer.zero_grad()
+            actor_loss.backward()
+            self.actor_optimizer.step()
+
+            # Update the frozen target models
+            for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
+                target_param.data.copy_(
+                    self.tau * param.data + (1 - self.tau) * target_param.data)
+
+            for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
+                target_param.data.copy_(
+                    self.tau * param.data + (1 - self.tau) * target_param.data)
+
+    def save(self, filename):
+        torch.save(self.critic.state_dict(), filename + "_critic")
+        torch.save(self.critic_optimizer.state_dict(),
+                   filename + "_critic_optimizer")
+
+        torch.save(self.actor.state_dict(), filename + "_actor")
+        torch.save(self.actor_optimizer.state_dict(),
+                   filename + "_actor_optimizer")
+
+    def load(self, filename):
+        self.critic.load_state_dict(torch.load(filename + "_critic"))
+        self.critic_optimizer.load_state_dict(
+            torch.load(filename + "_critic_optimizer"))
+        self.critic_target = copy.deepcopy(self.critic)
+
+        self.actor.load_state_dict(torch.load(filename + "_actor"))
+        self.actor_optimizer.load_state_dict(
+            torch.load(filename + "_actor_optimizer"))
+        self.actor_target = copy.deepcopy(self.actor)
