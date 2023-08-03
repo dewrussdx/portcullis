@@ -21,6 +21,7 @@ class Sim:
         seed: int = RNG_SEED,
         checkpoint_timer=5 * 60,
     ):
+        total_time = 0.0
         env: Env = self.agent.env
         state, _ = env.reset(seed=seed)
         self.agent.load(training=train_after_load)
@@ -50,17 +51,14 @@ class Sim:
             if self.agent.training:
                 if self.agent.is_highscore(score):
                     self.agent.save()
+            elapsed = time() - timer
+            total_time += elapsed
             print(
-                "#",
-                i + 1,
-                "[TRAIN]" if self.agent.training else "[EVAL]",
-                "Score:",
-                score,
-                "Eps:",
-                self.agent.eps,
-                "Samples:",
-                samples,
-                "Mem:",
-                self.agent.mem.size(),
+                f'#{i+1}:',
+                '[TRAIN]' if self.agent.training else '[EVAL]',
+                f'Score: {score:.2f} / {self.agent.high_score:.2f}',
+                f'Eps: {self.agent.eps:.2f}',
+                f'Mem: {samples} / {self.agent.mem.size()}',
+                f'Time: {elapsed:.2f} / {total_time:.2f}',
             )
         env.close()

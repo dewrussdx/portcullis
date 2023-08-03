@@ -57,10 +57,10 @@ def create_gym_sim(name: str = 'CartPole-v1', render_mode='human') -> any:
 
 
 def main():
-    agent = create_gym_sim('CartPole-v1')
+    #agent = create_gym_sim('CartPole-v1')
     #agent = create_gym_sim('LunarLander-v2')
     #agent = create_gym_sim('MountainCar-v0')
-    #agent = create_trading_sim()
+    agent = create_trading_sim()
 
     sim = Sim(agent)
     sim.run(num_episodes=1_000, mem_samples=128, train_after_load=False, checkpoint_timer=60)
