@@ -1,10 +1,12 @@
+import argparse
 from portcullis.sim import Sim
 from portcullis.mem import Mem
-from portcullis.agent import DQNNAgent
-from portcullis.nn import DQNN
+from portcullis.agent import DQNAgent
 from portcullis.env import Env, DaleTrader
 from portcullis.portfolio import Portfolio
 from portcullis.ta import SMA, EWMA
+
+DEFAULT_RNG_SEED = 2170596287
 
 
 def investment_portfolio_sample():
@@ -36,34 +38,98 @@ def swingtrading_portfolio_sample():
     print('Mean: %.2f %%' % (max_b * 100.0))
 
 
-def create_trading_sim():
+def create_trading_sim(args):
     df = Env.yf_download('AAPL', ta=[EWMA(8), EWMA(20), SMA(15), SMA(45)])
     train, _ = Env.split_data(df, test_ratio=0.2)
     env = DaleTrader(train, balance=50_000)
-    agent = DQNNAgent(env, mem=Mem(50_000), hdims=(512, 256), lr=1e-4,
-                      gamma=0.99, eps=0.9, eps_min=0.01, eps_decay=0.9999,
-                      tau=0.005, training=True, name='DaleTrader_DQNNAgent')
+    agent = None
+    if args.algo == 'DQN':
+        agent = DQNAgent(env, mem=Mem(args.replaybuffer_size), hdims=(512, 256), lr=args.lr,
+                         gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay,
+                         tau=args.tau, name=f'DaleTrader_DQNAgent')
     return agent
 
 
-def create_gym_sim(name: str = 'CartPole-v1', render_mode='human') -> any:
+def create_gym_sim(args: list[any], render_mode='human') -> any:
     import gymnasium as gym
+    # 'CartPole-v1', 'HalfCheetah-v2', 'LunarLander-v2', 'MountainCar-v0'
     # https://gymnasium.farama.org/
-    env = gym.make(name, render_mode=render_mode)
-    agent = DQNNAgent(env, mem=Mem(50_000), hdims=(512, 256), lr=1e-4,
-                      gamma=0.99, eps=0.9, eps_min=0.01, eps_decay=0.9999,
-                      tau=0.005, training=True, name=f'{name}_DQNNAgent')
+    env = gym.make(args.env, render_mode=render_mode)
+    agent = None
+    if args.algo == 'DQN':
+        agent = DQNAgent(env, mem=Mem(args.replaybuffer_size), hdims=(512, 256), lr=args.lr,
+                         gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay,
+                         tau=args.tau, name=f'{args.env}_DQNAgent')
     return agent
 
 
 def main():
-    #agent = create_gym_sim('CartPole-v1')
-    #agent = create_gym_sim('LunarLander-v2')
-    #agent = create_gym_sim('MountainCar-v0')
-    agent = create_trading_sim()
+    parser = argparse.ArgumentParser()
+    # Interactive mode
+    parser.add_argument('--interactive', default=True, action='store_true')
+    # Environment name (gym or native)
+    parser.add_argument('--env', default='CartPole-v1')
+    # Algo name (DQN, TD3, DDPG or DDPGplus)
+    parser.add_argument('--algo', type=str.upper, default='DQN')
+    # Number of episodes
+    parser.add_argument('--num_episodes', default=1_000,
+                        type=int)
+    # Replaybuffer size
+    parser.add_argument('--replaybuffer_size',
+                        default=50_000, type=int)
+    # Learning rate
+    parser.add_argument('--lr',
+                        default=1e-4, type=float)
+    # Inference or training mode
+    parser.add_argument('--mode', type=str.lower,
+                        default='train', choices=['train', 'eval'])
+    # Sets Gym, PyTorch and Numpy seeds
+    parser.add_argument('--seed', default=DEFAULT_RNG_SEED, type=int)
+    # Ignore episode truncation flag
+    parser.add_argument('--ignore_trunc', default=False, action='store_true')
+    # Epsilon Initial
+    parser.add_argument('--eps', default=0.9, type=float)
+    # Epsilon Minimum
+    parser.add_argument('--eps_min', default=0.01, type=float)
+    # Epsilon Decay
+    parser.add_argument('--eps_decay', default=0.9999, type=float)
 
-    sim = Sim(agent)
-    sim.run(num_episodes=1_000, mem_samples=128, train_after_load=False, checkpoint_timer=60)
+    # Time steps initial random policy is used
+    parser.add_argument('--start_timesteps', default=25e3, type=int)
+    # How often (time steps) we evaluate
+    parser.add_argument('--eval_freq', default=5e3, type=int)
+    # Max time steps to run environment
+    parser.add_argument('--max_timesteps', default=1e6, type=int)
+    # Std of Gaussian exploration noise
+    parser.add_argument('--expl_noise', default=0.1, type=float)
+    # Batch size for both actor and critic
+    parser.add_argument('--batch_size', default=128, type=int)
+    parser.add_argument('--gamma', default=0.99,
+                        type=float)        # Discount factor
+    # Target network update rate
+    parser.add_argument('--tau', default=0.005, type=float)
+    # Noise added to target policy during critic update
+    parser.add_argument('--policy_noise', default=0.2)
+    # Range to clip target policy noise
+    parser.add_argument('--noise_clip', default=0.5)
+    # Frequency of delayed policy updates
+    parser.add_argument('--policy_freq', default=2, type=int)
+    # Save enabled
+    parser.add_argument('--save', default=False, action='store_true')
+    # Load enabled
+    parser.add_argument('--load', default=False, action='store_true')
+    # path for load/save (None=default path)
+    parser.add_argument('--path', default=None)
+    # path for load/save (None=default path)
+
+    args = parser.parse_args()
+    print(args)
+
+    agent = create_gym_sim(args)
+    # agent = create_trading_sim(args)
+    assert agent is not None
+
+    Sim(agent).run(args)
 
 
 if __name__ == "__main__":

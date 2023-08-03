@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from portcullis.nn import NN, DQNN, ActorNN, CriticNN
+from portcullis.nn import NN
 from portcullis.env import Env, Action, State
 from portcullis.mem import Mem, Frag
 from portcullis.pytorch import DEVICE
@@ -11,7 +11,7 @@ import copy
 class Agent():
     def __init__(self, env: Env, mem: Mem, hdims: tuple[int, int], lr: float,
                  gamma: float, eps: float, eps_min: float, eps_decay: float,
-                 tau: float, training: bool, name: str,
+                 tau: float, name: str,
                  ):
         """DRL Agent Base Class.
         """
@@ -24,35 +24,35 @@ class Agent():
         self.eps_min = eps_min
         self.eps_decay = eps_decay
         self.tau = tau
-        self.training = training
         self.name = name
+        self.training = None
         self.epochs = 0
         self.scores = []
         self.high_score = -1e10
-        self.gym_env = (type(self.env.action_space).__name__ == 'Discrete') # FIXME: Only detects discrete action space envs
+        self.gym_env = (type(self.env.action_space).__name__ == 'Discrete')
         if self.gym_env:
+            # .shape[0] for Continuous
             self.num_actions = self.env.action_space.n
             self.num_features = self.env.observation_space.shape[0]
+            # TODO Continuous: self.max_actions = float(self.env.action_space.high[0])
         else:
             self.num_actions = self.env.num_actions()
             self.num_features = self.env.num_features()
+            self.max_actions = 0
 
     # Save agent state
     def save(self, checkpoint: dict, path: str, verbose: bool, seed: int) -> None:
-        path = path or f'./models/{self.name}_{DEVICE}.torch'
+        path = path or f'./models/{self.name}.torch'
         dir_name = os.path.dirname(path)
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
         checkpoint.update({
+            'name': self.name,
             'seed': seed,
             'hdims': self.hdims,
             'lr': self.lr,
             'gamma': self.gamma,
-            'eps': self.eps,
-            'eps_min': self.eps_min,
-            'eps_decay': self.eps_decay,
             'tau': self.tau,
-            'name': self.name,
             'epochs': self.epochs,
             'scores': self.scores,
             'high_score': self.high_score,
@@ -63,21 +63,17 @@ class Agent():
         torch.save(checkpoint, path)
 
     # Load agent state
-    def load(self, path: str, verbose: bool, training: bool) -> dict:
-        path = path or f'./models/{self.name}_{DEVICE}.torch'
+    def load(self, path: str, verbose: bool) -> dict:
+        path = path or f'./models/{self.name}.torch'
         if not os.path.exists(path):
             return None
         checkpoint = torch.load(path, map_location=DEVICE)
-        self.training = training
+        self.name = checkpoint['name']
         seed = checkpoint['seed']
         self.hdims = checkpoint['hdims']
         self.lr = checkpoint['lr']
         self.gamma = checkpoint['gamma']
-        self.eps = checkpoint['eps']
-        self.eps_min = checkpoint['eps_min']
-        self.eps_decay = checkpoint['eps_decay']
         self.tau = checkpoint['tau']
-        self.name = checkpoint['name']
         self.epochs = checkpoint['epochs']
         self.scores = checkpoint['scores']
         self.high_score = checkpoint['high_score']
@@ -97,14 +93,44 @@ class Agent():
             return True
         return False
 
-    def adj_eps(self) -> float:
-        """Adjust exploration rate (epsilon-greedy).
+    def dec_eps(self) -> float:
+        """Decrement exploration rate (epsilon-greedy).
         """
         self.eps = max(self.eps_min, self.eps * self.eps_decay)
         return self.eps
 
+    def set_mode(self, training: bool) -> bool:
+        """Set training (or evaluation/inference) mode. Return True if mode has changed.
+        """
+        if training != self.training:
+            self.training = training
+            return True
+        return False
 
-class DQNNAgent(Agent):
+class DQNAgent(Agent):
+    class DQN(NN):
+        # Initialize NN with input, hidden and output layers
+        def __init__(self, state_dim: int, hdims: (int, int), action_dim: int,
+                     lr: float = 1e-4, name: str = None) -> None:
+            super().__init__(name)
+            self.state_dim = state_dim
+            self.hdims = hdims
+            self.action_dim = action_dim
+            self.lr = lr
+            self.name = name
+            self.fc1 = torch.nn.Linear(self.state_dim, self.hdims[0])
+            self.fc2 = torch.nn.Linear(self.hdims[0], self.hdims[1])
+            self.fc3 = torch.nn.Linear(self.hdims[1], self.action_dim)
+            self.optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+            self.to(DEVICE)
+
+        # Called with either one element to determine next action, or a batch
+        # during optimization. Returns tensor([[left0exp,right0exp]...]).
+        def forward(self, state):
+            x = torch.nn.functional.relu(self.fc1(state))
+            x = torch.nn.functional.relu(self.fc2(x))
+            return self.fc3(x)
+
     """Deep Quality Neural Network. This implementation uses separate value and target 
     networks for stability.
     """
@@ -120,39 +146,39 @@ class DQNNAgent(Agent):
                  eps_decay: float = 0.99,
                  tau: float = 0.005,
                  training: bool = True,
-                 name: str = 'DQNNAgent'
+                 name: str = 'DQNAgent'
                  ):
         super().__init__(env, mem, hdims, lr, gamma, eps,
-                         eps_min, eps_decay, tau, training, name)
-        self.nn_p = DQNN(self.num_features, self.hdims, self.num_actions,
-                         self.lr, name='DQNN_Policy')
-        self.nn_t = DQNN(self.num_features, self.hdims, self.num_actions,
-                         self.lr, name='DQNN_Target')
+                         eps_min, eps_decay, tau, name)
+        self.nn_p = DQNAgent.DQN(self.num_features, self.hdims, self.num_actions,
+                                 self.lr, name='DQN_Policy')
+        self.nn_t = DQNAgent.DQN(self.num_features, self.hdims, self.num_actions,
+                                 self.lr, name='DQN_Target')
         self.nn_p.optimizer = torch.optim.AdamW(
             self.nn_p.parameters(), lr=self.lr, amsgrad=True)
         self.criterion = torch.nn.SmoothL1Loss()
-        self._configure_nn()
+        self.set_mode(training)
 
-    def _configure_nn(self):
-        # Always disable training mode for target network
-        self.nn_t.eval()
-        # For policy network check the training flag
-        if self.training:
-            print('Training policy network')
-            self.nn_p.train()
-        else:
-            print('Evaluating policy network')
-            self.nn_p.eval()
+    def set_mode(self, training: bool) -> None:
+        if super().set_mode(training):
+            # Always disable training mode for target network
+            self.nn_t.eval()
+            # For policy network check the training flag
+            if self.training:
+                print('Training policy network')
+                self.nn_p.train()
+            else:
+                print('Evaluating policy network')
+                self.nn_p.eval()
 
-    def learn(self, mem_samples: int, soft_update: bool = True) -> None:
+    def train(self, batch_size: int = 256) -> None:
         # Book keeping
         self.epochs += 1
-        assert self.training
 
         # Sample memory
-        if len(self.mem) < mem_samples:
+        if len(self.mem) < batch_size:
             return
-        frags = self.mem.sample(mem_samples)
+        frags = self.mem.sample(batch_size)
         # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
         # detailed explanation). This converts batch-array of Transitions
         # to Transition of batch-arrays.
@@ -178,7 +204,7 @@ class DQNNAgent(Agent):
         # on the "older" target_net; selecting their best reward with max(1)[0].
         # This is merged based on the mask, such that we'll have either the expected
         # state value or 0 in case the state was final.
-        next_state_values = torch.zeros(mem_samples, device=DEVICE)
+        next_state_values = torch.zeros(batch_size, device=DEVICE)
         with torch.no_grad():
             next_state_values[non_final_mask] = self.nn_t(
                 non_final_next_states).max(1)[0]
@@ -198,10 +224,7 @@ class DQNNAgent(Agent):
         self.nn_p.optimizer.step()
 
         # Target network soft update (blending of states)
-        if soft_update:
-            NN.soft_update(self.nn_p, self.nn_t, self.tau)
-        else:  # hard update (sync all states)
-            NN.sync_states(self.nn_p, self.nn_t)
+        NN.soft_update(self.nn_p, self.nn_t, self.tau)
 
     def act(self, state) -> Action:
         """Returns action for given state as per current policy.
@@ -234,17 +257,19 @@ class DQNNAgent(Agent):
             next_state, dtype=torch.float32, device=DEVICE).unsqueeze(0) if not done else None
         self.mem.push(state, action, reward, next_state)
 
-    def load(self, path: str = None, verbose: bool = True, training: bool = True) -> None:
+    def load(self, path: str = None, verbose: bool = True) -> None:
         """Load agent state from persistent storage.
         """
-        checkpoint = super().load(path, verbose=verbose, training=training)
+        checkpoint = super().load(path, verbose=verbose)
         if checkpoint:
             self.nn_p.load_state_dict(checkpoint['nn_p'])
             self.nn_p.optimizer.load_state_dict(checkpoint['opt_p'])
             self.nn_t.load_state_dict(checkpoint['nn_p'])
             self.nn_t.optimizer.load_state_dict(checkpoint['opt_t'])
             self.criterion = checkpoint['criterion']
-            self._configure_nn()
+            self.eps = checkpoint['eps']
+            self.eps_min = checkpoint['eps_min']
+            self.eps_decay = checkpoint['eps_decay']
 
     def save(self, path: str = None, verbose: bool = True, seed: int = None) -> None:
         """Save agent state to persistent storage.
@@ -255,11 +280,64 @@ class DQNNAgent(Agent):
             'nn_t': self.nn_t.state_dict(),
             'opt_t': self.nn_t.optimizer.state_dict(),
             'criterion': self.criterion,
+            'eps': self.eps,
+            'eps_min': self.eps_min,
+            'eps_decay': self.eps_decay,
         }
         super().save(checkpoint, path, verbose=verbose, seed=seed)
 
 
 class TD3Agent(Agent):
+
+    class Actor(NN):
+        def __init__(self, state_dim: int, action_dim: int, max_action: int, name: str = None):
+            super().__init__(name)
+
+            self.l1 = torch.nn.Linear(state_dim, 256)
+            self.l2 = torch.nn.Linear(256, 256)
+            self.l3 = torch.nn.Linear(256, action_dim)
+
+            self.max_action = max_action
+
+        def forward(self, state):
+            a = torch.nn.functional.relu(self.l1(state))
+            a = torch.nn.functional.relu(self.l2(a))
+            return self.max_action * torch.tanh(self.l3(a))
+
+    class Critic(NN):
+        def __init__(self, state_dim: int, action_dim: int, name: str = None):
+            super().__init__(name)
+
+            # Q1 architecture
+            self.l1 = torch.nn.Linear(state_dim + action_dim, 256)
+            self.l2 = torch.nn.Linear(256, 256)
+            self.l3 = torch.nn.Linear(256, 1)
+
+            # Q2 architecture
+            self.l4 = torch.nn.Linear(state_dim + action_dim, 256)
+            self.l5 = torch.nn.Linear(256, 256)
+            self.l6 = torch.nn.Linear(256, 1)
+
+        def forward(self, state, action):
+            sa = torch.cat([state, action], 1)
+
+            q1 = torch.nn.functional.relu(self.l1(sa))
+            q1 = torch.nn.functional.relu(self.l2(q1))
+            q1 = self.l3(q1)
+
+            q2 = torch.nn.functional.relu(self.l4(sa))
+            q2 = torch.nn.functional.relu(self.l5(q2))
+            q2 = self.l6(q2)
+            return q1, q2
+
+        def Q1(self, state, action):
+            sa = torch.cat([state, action], 1)
+
+            q1 = torch.nn.functional.relu(self.l1(sa))
+            q1 = torch.nn.functional.relu(self.l2(q1))
+            q1 = self.l3(q1)
+            return q1
+
     def __init__(
             self,
             state_dim,
@@ -272,12 +350,13 @@ class TD3Agent(Agent):
             policy_freq=2
     ):
 
-        self.actor = ActorNN(state_dim, action_dim, max_action).to(DEVICE)
+        self.actor = TD3Agent.Actor(
+            state_dim, action_dim, max_action).to(DEVICE)
         self.actor_target = copy.deepcopy(self.actor)
         self.actor_optimizer = torch.optim.Adam(
             self.actor.parameters(), lr=3e-4)
 
-        self.critic = CriticNN(state_dim, action_dim).to(DEVICE)
+        self.critic = TD3Agent.Critic(state_dim, action_dim).to(DEVICE)
         self.critic_target = copy.deepcopy(self.critic)
         self.critic_optimizer = torch.optim.Adam(
             self.critic.parameters(), lr=3e-4)
@@ -348,6 +427,117 @@ class TD3Agent(Agent):
             for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
                 target_param.data.copy_(
                     self.tau * param.data + (1 - self.tau) * target_param.data)
+
+    def save(self, filename):
+        torch.save(self.critic.state_dict(), filename + "_critic")
+        torch.save(self.critic_optimizer.state_dict(),
+                   filename + "_critic_optimizer")
+
+        torch.save(self.actor.state_dict(), filename + "_actor")
+        torch.save(self.actor_optimizer.state_dict(),
+                   filename + "_actor_optimizer")
+
+    def load(self, filename):
+        self.critic.load_state_dict(torch.load(filename + "_critic"))
+        self.critic_optimizer.load_state_dict(
+            torch.load(filename + "_critic_optimizer"))
+        self.critic_target = copy.deepcopy(self.critic)
+
+        self.actor.load_state_dict(torch.load(filename + "_actor"))
+        self.actor_optimizer.load_state_dict(
+            torch.load(filename + "_actor_optimizer"))
+        self.actor_target = copy.deepcopy(self.actor)
+
+
+# Re-tuned version of Deep Deterministic Policy Gradients (DDPG)
+# Paper: https://arxiv.org/abs/1509.02971
+
+
+class DDPGplus(object):
+
+    class Actor(NN):
+        def __init__(self, state_dim, action_dim, max_action):
+            super().__init__()
+            self.l1 = torch.nn.Linear(state_dim, 256)
+            self.l2 = torch.nn.Linear(256, 256)
+            self.l3 = torch.nn.Linear(256, action_dim)
+            self.max_action = max_action
+
+        def forward(self, state):
+            a = torch.nn.functional.relu(self.l1(state))
+            a = torch.nn.functional.relu(self.l2(a))
+            return self.max_action * torch.tanh(self.l3(a))
+
+    class Critic(NN):
+        def __init__(self, state_dim, action_dim):
+            super().__init__()
+
+            self.l1 = torch.nn.Linear(state_dim + action_dim, 256)
+            self.l2 = torch.nn.Linear(256, 256)
+            self.l3 = torch.nn.Linear(256, 1)
+
+        def forward(self, state, action):
+            q = torch.nn.functional.relu(
+                self.l1(torch.cat([state, action], 1)))
+            q = torch.nn.functional.relu(self.l2(q))
+            return self.l3(q)
+
+    def __init__(self, state_dim, action_dim, max_action, discount=0.99, tau=0.005):
+        self.actor = DDPGplus.Actor(
+            state_dim, action_dim, max_action).to(DEVICE)
+        self.actor_target = copy.deepcopy(self.actor)
+        self.actor_optimizer = torch.optim.Adam(
+            self.actor.parameters(), lr=3e-4)
+
+        self.critic = DDPGplus.Critic(state_dim, action_dim).to(DEVICE)
+        self.critic_target = copy.deepcopy(self.critic)
+        self.critic_optimizer = torch.optim.Adam(
+            self.critic.parameters(), lr=3e-4)
+
+        self.discount = discount
+        self.tau = tau
+
+    def select_action(self, state):
+        state = torch.FloatTensor(state.reshape(1, -1)).to(DEVICE)
+        return self.actor(state).cpu().data.numpy().flatten()
+
+    def train(self, replay_buffer, batch_size=256):
+        # Sample replay buffer
+        state, action, next_state, reward, not_done = replay_buffer.sample(
+            batch_size)
+
+        # Compute the target Q value
+        target_Q = self.critic_target(
+            next_state, self.actor_target(next_state))
+        target_Q = reward + (not_done * self.discount * target_Q).detach()
+
+        # Get current Q estimate
+        current_Q = self.critic(state, action)
+
+        # Compute critic loss
+        critic_loss = F.mse_loss(current_Q, target_Q)
+
+        # Optimize the critic
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+
+        # Compute actor loss
+        actor_loss = -self.critic(state, self.actor(state)).mean()
+
+        # Optimize the actor
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        self.actor_optimizer.step()
+
+        # Update the frozen target models
+        for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
+            target_param.data.copy_(
+                self.tau * param.data + (1 - self.tau) * target_param.data)
+
+        for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
+            target_param.data.copy_(
+                self.tau * param.data + (1 - self.tau) * target_param.data)
 
     def save(self, filename):
         torch.save(self.critic.state_dict(), filename + "_critic")
