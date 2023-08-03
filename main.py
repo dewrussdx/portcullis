@@ -59,7 +59,7 @@ def main():
     agent = create_gym_sim()
     # agent = create_native_sim()
     sim = Sim(agent)
-    sim.run(num_episodes=10_000, mem_samples=128, training=True) # EVAL: seed=42
+    sim.run(num_episodes=10_000, mem_samples=128, training=False)
 
 
 if __name__ == "__main__":

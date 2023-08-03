@@ -37,11 +37,11 @@ class Agent():
             self.num_features = self.env.num_features()
 
     # Save agent state
-    def save(self, checkpoint: any, path: str = None, verbose: bool = True, seed: int = None):
+    def save(self, checkpoint: dict, path: str, verbose: bool, seed: int) -> None:
         path = path or f'./models/{self.name}.torch'
         dir_name = os.path.dirname(path)
         if not os.path.exists(dir_name):
-            os.makedirs(dir_name)        
+            os.makedirs(dir_name)
         checkpoint.update({
             'seed': seed,
             'hdims': self.hdims,
@@ -51,7 +51,6 @@ class Agent():
             'eps_min': self.eps_min,
             'eps_decay': self.eps_decay,
             'tau': self.tau,
-            'training': self.training,
             'name': self.name,
             'epochs': self.epochs,
             'scores': self.scores,
@@ -62,28 +61,29 @@ class Agent():
         torch.save(checkpoint, path)
 
     # Load agent state
-    def load(self, path: str = None, verbose: bool = True):
+    def load(self, path: str, verbose: bool, training: bool) -> dict:
         path = path or f'./models/{self.name}.torch'
-        if os.path.exists(path):
-            checkpoint = torch.load(path, map_location=DEVICE)
-            seed = checkpoint['seed']
-            self.hdims = checkpoint['hdims']
-            self.lr = checkpoint['lr']
-            self.gamma = checkpoint['gamma']
-            self.eps = checkpoint['eps']
-            self.eps_min = checkpoint['eps_min']
-            self.eps_decay = checkpoint['eps_decay']
-            self.tau = checkpoint['tau']
-            self.training = checkpoint['training']
-            self.name = checkpoint['name']
-            self.epochs = checkpoint['epochs']
-            self.scores = checkpoint['scores']
-            self.high_score = checkpoint['high_score']
-            self.env.reset(seed=seed)
-            self.mem.clear()
-            if verbose:
-                print(f'Loaded agent {path}: Epochs={self.epochs}, Score={self.high_score}')
-        return None
+        if not os.path.exists(path):
+            return None
+        checkpoint = torch.load(path, map_location=DEVICE)
+        self.training = training
+        seed = checkpoint['seed']
+        self.hdims = checkpoint['hdims']
+        self.lr = checkpoint['lr']
+        self.gamma = checkpoint['gamma']
+        self.eps = checkpoint['eps']
+        self.eps_min = checkpoint['eps_min']
+        self.eps_decay = checkpoint['eps_decay']
+        self.tau = checkpoint['tau']
+        self.name = checkpoint['name']
+        self.epochs = checkpoint['epochs']
+        self.scores = checkpoint['scores']
+        self.high_score = checkpoint['high_score']
+        self.env.reset(seed=seed)
+        self.mem.clear()
+        if verbose:
+            print(f'Loaded agent {path}: Epochs={self.epochs}, Score={self.high_score}')
+        return checkpoint
 
     def is_highscore(self, score: float) -> bool:
         """Records how this agent performs. Returns True if score is a new high score.
@@ -135,8 +135,10 @@ class DQNNAgent(Agent):
         self.nn_t.eval()
         # For policy network check the training flag
         if self.training:
+            print('Training policy network')
             self.nn_p.train()
         else:
+            print('Evaluating policy network')
             self.nn_p.eval()
 
     def learn(self, mem_samples: int, soft_update: bool = True) -> None:
@@ -197,7 +199,7 @@ class DQNNAgent(Agent):
             NN.soft_update(self.nn_p, self.nn_t, self.tau)
         else:  # hard update (sync all states)
             NN.sync_states(self.nn_p, self.nn_t)
-       
+
     def act(self, state) -> Action:
         """Returns action for given state as per current policy.
         """
@@ -229,18 +231,17 @@ class DQNNAgent(Agent):
             next_state, dtype=torch.float32, device=DEVICE).unsqueeze(0) if not done else None
         self.mem.push(state, action, reward, next_state)
 
-    def load(self, path: str = None, verbose: bool = True) -> None:
+    def load(self, path: str = None, verbose: bool = True, training: bool = True) -> None:
         """Load agent state from persistent storage.
         """
-        checkpoint = super().load(path, verbose=verbose)
-        if checkpoint is None:
-            return
-        self.nn_p.load_state_dict(checkpoint['nn_p'])
-        self.nn_p.optimizer.load_state_dict(checkpoint['opt_p'])
-        self.nn_t.load_state_dict(checkpoint['nn_p'])
-        self.nn_t.optimizer.load_state_dict(checkpoint['opt_t'])
-        self.criterion = checkpoint['criterion']        
-        self._configure_nn()
+        checkpoint = super().load(path, verbose=verbose, training=training)
+        if checkpoint:
+            self.nn_p.load_state_dict(checkpoint['nn_p'])
+            self.nn_p.optimizer.load_state_dict(checkpoint['opt_p'])
+            self.nn_t.load_state_dict(checkpoint['nn_p'])
+            self.nn_t.optimizer.load_state_dict(checkpoint['opt_t'])
+            self.criterion = checkpoint['criterion']        
+            self._configure_nn()
 
     def save(self, path: str = None, verbose: bool = True, seed: int = None) -> None:
         """Save agent state to persistent storage.
