@@ -1,10 +1,12 @@
 import argparse
 from portcullis.sim import Sim
 from portcullis.mem import Mem
-from portcullis.agent import DQNAgent
-from portcullis.env import Env, DaleTrader
+from portcullis.agent import DQN, DDPG, DDPGplus, TD3
+from portcullis.env import Env
+from portcullis.daytrader import DayTrader
 from portcullis.portfolio import Portfolio
 from portcullis.ta import SMA, EWMA
+import gymnasium as gym
 
 DEFAULT_RNG_SEED = 2170596287
 
@@ -39,27 +41,29 @@ def swingtrading_portfolio_sample():
 
 
 def create_trading_sim(args):
-    df = Env.yf_download('AAPL', ta=[EWMA(8), EWMA(20), SMA(15), SMA(45)])
+    df = Env.yf_download('AAPL', logret_col=None, ta=[
+                         EWMA(8), EWMA(20), SMA(15), SMA(45)])
     train, _ = Env.split_data(df, test_ratio=0.2)
-    env = DaleTrader(train, balance=50_000)
+    env = DayTrader(train, balance=10_000)
     agent = None
     if args.algo == 'DQN':
-        agent = DQNAgent(env, mem=Mem(args.replaybuffer_size), hdims=(512, 256), lr=args.lr,
-                         gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay,
-                         tau=args.tau, name=f'DaleTrader_DQNAgent')
+        agent = DQN(env, mem=Mem(args.replaybuffer_size), hdims=(256, 256), lr=args.lr,
+                    gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay,
+                    tau=args.tau, name=f'DaleTrader_DQNAgent')
     return agent
 
 
 def create_gym_sim(args: list[any], render_mode='human') -> any:
-    import gymnasium as gym
-    # 'CartPole-v1', 'HalfCheetah-v2', 'LunarLander-v2', 'MountainCar-v0'
+    # 'CartPole-v1', 'LunarLander-v2', 'MountainCar-v0'
+    # 'MountainCarContinuous-v0', 'HalfCheetah-v2'
+    #
     # https://gymnasium.farama.org/
     env = gym.make(args.env, render_mode=render_mode)
     agent = None
     if args.algo == 'DQN':
-        agent = DQNAgent(env, mem=Mem(args.replaybuffer_size), hdims=(512, 256), lr=args.lr,
-                         gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay,
-                         tau=args.tau, name=f'{args.env}_DQNAgent')
+        agent = DQN(env, mem=Mem(args.replaybuffer_size), hdims=(256, 256), lr=args.lr,
+                    gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay,
+                    tau=args.tau, name=f'{args.env}_DQNAgent')
     return agent
 
 
@@ -68,15 +72,16 @@ def main():
     # Interactive mode
     parser.add_argument('--interactive', default=True, action='store_true')
     # Environment name (gym or native)
-    parser.add_argument('--env', default='CartPole-v1')
+    parser.add_argument('--env', default='DayTrader')
     # Algo name (DQN, TD3, DDPG or DDPGplus)
-    parser.add_argument('--algo', type=str.upper, default='DQN')
+    parser.add_argument('--algo', type=str.upper, default='DQN',
+                        choices=['DQN', 'DDPG', 'DDPGplus', 'TD3'])
     # Number of episodes
     parser.add_argument('--num_episodes', default=1_000,
                         type=int)
     # Replaybuffer size
     parser.add_argument('--replaybuffer_size',
-                        default=50_000, type=int)
+                        default=10_000, type=int)
     # Learning rate
     parser.add_argument('--lr',
                         default=1e-4, type=float)
@@ -88,14 +93,14 @@ def main():
     # Ignore episode truncation flag
     parser.add_argument('--ignore_trunc', default=False, action='store_true')
     # Epsilon Initial
-    parser.add_argument('--eps', default=0.9, type=float)
+    parser.add_argument('--eps', default=1.0, type=float)
     # Epsilon Minimum
-    parser.add_argument('--eps_min', default=0.01, type=float)
+    parser.add_argument('--eps_min', default=0.005, type=float)
     # Epsilon Decay
-    parser.add_argument('--eps_decay', default=0.9999, type=float)
+    parser.add_argument('--eps_decay', default=0.9995, type=float)
 
     # Time steps initial random policy is used
-    parser.add_argument('--start_timesteps', default=25e3, type=int)
+    parser.add_argument('--start_timesteps', default=1_000, type=int)  # 25e3
     # How often (time steps) we evaluate
     parser.add_argument('--eval_freq', default=5e3, type=int)
     # Max time steps to run environment
@@ -125,11 +130,29 @@ def main():
     args = parser.parse_args()
     print(args)
 
-    agent = create_gym_sim(args)
-    # agent = create_trading_sim(args)
+    args.env = 'DayTrader'
+    args.replaybuffer_size = 10_000
+    args.eps_dec = 0.9999
+    args.batch_size = 128
+
+    if args.env == 'DayTrader':
+        agent = create_trading_sim(args)
+    else:
+        agent = create_gym_sim(args)
     assert agent is not None
 
-    Sim(agent).run(args)
+    # ---------------
+    # !!!HACK!!!
+    # Run different simulation driver for environment type
+    # FIXME: Should be handled by just one driver
+    _, env_type, _, _, _ = Env.get_env_spec(agent.env)
+    if env_type == Env.DISCRETE:
+        Sim(agent).run(args)
+    else:
+        assert env_type == Env.CONTINUOUS
+        args.algo = 'DDPG'
+        Sim(agent).run_continuous(agent.env, args)
+    # ---------------
 
 
 if __name__ == "__main__":

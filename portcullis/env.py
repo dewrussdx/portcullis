@@ -1,38 +1,30 @@
 import numpy as np
 import pandas as pd
-import random
-from portcullis.pytorch import manual_seed
-
-# A very simple environment representing a stock market
 
 State = list[float]
 Action = int
 
 
 class Env():
-    NONE: Action = 0
-    BUY: Action = 1
-    SELL: Action = 2
 
-    def __init__(self, df: pd.DataFrame, name: str):
-        self.df = df
+    DISCRETE = 0
+    CONTINUOUS = 1
+
+    def __init__(self, name: str, env_type: int, action_space: any, observation_space: any):
         self.name = name
-        self.action_space = [Env.NONE, Env.BUY, Env.SELL]
-        # FIXME: Not sure if numpy infers datatype properly from pandas
-        self.observation_space = self.df.to_numpy()
+        self.env_type = env_type
+        self.action_space = action_space
+        self.observation_space = observation_space
         self.max_steps = len(self.observation_space) - 1
         self.seed = None
         self.reset()
 
     def step(self, _action: Action) -> tuple[State, float, bool, bool, any]:
-        assert False and "Step not implemented in base environment."
+        pass
 
     def reset(self, seed: int = None) -> tuple[State, any]:
         if seed is not None:
             self.seed = seed
-            manual_seed(seed)
-            random.seed(seed)
-            np.random.seed(seed)
         self.index = 0
         return self.observation_space[self.index], None
 
@@ -78,37 +70,19 @@ class Env():
         N = int(len(df)*test_ratio)
         return df.iloc[:-N].copy(), df.iloc[-N:].copy()
 
+    @staticmethod
+    def get_env_type(action_space: any) -> tuple[bool, int]:
+        name = type(action_space).__name__
+        return (True, Env.DISCRETE) if name == 'Discrete' else (True, Env.CONTINUOUS) if name == 'Box' else (False, Env.DISCRETE)
 
-class DaleTrader(Env):
-    def __init__(self, df: pd.DataFrame, balance: int = 50_000):
-        super().__init__(df, 'DaleTrader')
-        self.balance = balance
-        self.rewards = self.df['LogReturn'].to_numpy(dtype=np.float32)
-        self.reset()
-
-    def reset(self, seed: int = None) -> tuple[State, any]:
-        self.invested = 0
-        return super().reset(seed)
-
-    def step(self, action: Action) -> tuple[State, float, bool, bool, any]:
-        assert Env.NONE <= action <= Env.SELL
-        self.index += 1
-        assert self.index <= self.max_steps
-
-        # Calculate reward for the step
-        reward = 0
-        if action == Env.BUY:
-            self.invested = 1
-        elif action == Env.SELL:
-            self.invested = 0
-
-        # budget = min(self.balance, 1000)
-        # num_shares = int(budget / self.observation_space['Close'])
-        # expense = num_shares * self.observation_space['Close']
-
-        reward += self.rewards[self.index] * self.invested
-
-        # Return (state, reward, done)
-        next_state = self.observation_space[self.index]
-        done = self.index >= self.max_steps
-        return next_state, reward, done, False, None
+    @staticmethod
+    def get_env_spec(env: any) -> tuple[bool, int, int, int, float]:
+        is_gym, env_type = Env.get_env_type(env.action_space)
+        if not is_gym:
+            # TODO: Native environments do not support CONTINOUS action spaces yet
+            return is_gym, env_type, env.num_actions(), env.num_features(), None
+        if env_type == Env.DISCRETE:
+            return is_gym, env_type, env.action_space.n, env.observation_space.shape[0], None
+        elif env_type == Env.CONTINUOUS:
+            return is_gym, env_type, env.action_space.shape[0], env.observation_space.shape[0], env.action_space.high[0]
+        assert (False)
