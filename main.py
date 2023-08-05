@@ -44,12 +44,12 @@ def create_trading_sim(args):
     df = Env.yf_download('AAPL', logret_col=None, ta=[
                          EWMA(8), EWMA(20), SMA(15), SMA(45)])
     train, _ = Env.split_data(df, test_ratio=0.2)
-    env = DayTrader(train, balance=10_000)
+    env = DayTrader(train, balance=10_000, verbose=args.verbose)
     agent = None
     if args.algo == 'DQN':
         agent = DQN(env, mem=Mem(args.replaybuffer_size), hdims=(256, 256), lr=args.lr,
                     gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay,
-                    tau=args.tau, name=f'DaleTrader_DQNAgent')
+                    tau=args.tau, name=f'DayTrader_DQNAgent')
     return agent
 
 
@@ -119,6 +119,8 @@ def main():
     parser.add_argument('--noise_clip', default=0.5)
     # Frequency of delayed policy updates
     parser.add_argument('--policy_freq', default=2, type=int)
+    # Verbose log output
+    parser.add_argument('--verbose', default=False, action='store_true')
     # Save enabled
     parser.add_argument('--save', default=False, action='store_true')
     # Load enabled
@@ -127,14 +129,10 @@ def main():
     parser.add_argument('--path', default=None)
     # path for load/save (None=default path)
 
-    args = parser.parse_args()
+    args = parser.parse_args()    
     print(args)
 
-    args.env = 'DayTrader'
-    args.replaybuffer_size = 10_000
-    args.eps_dec = 0.9999
-    args.batch_size = 128
-
+    
     if args.env == 'DayTrader':
         agent = create_trading_sim(args)
     else:

@@ -17,7 +17,6 @@ class Env():
         self.observation_space = observation_space
         self.max_steps = len(self.observation_space) - 1
         self.seed = None
-        self.reset()
 
     def step(self, _action: Action) -> tuple[State, float, bool, bool, any]:
         pass
