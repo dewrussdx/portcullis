@@ -17,6 +17,8 @@ class Env():
         self.observation_space = observation_space
         self.max_steps = len(self.observation_space) - 1
         self.seed = None
+        # To stay compatible with gym environments
+        self._max_episode_steps = self.max_steps
 
     def step(self, _action: Action) -> tuple[State, float, bool, bool, any]:
         pass
@@ -37,10 +39,10 @@ class Env():
         return np.random.choice(self.action_space)
 
     def num_actions(self) -> int:
-        return len(self.action_space)
+        return self.action_space.shape[0]
 
     def num_features(self) -> int:
-        return self.df.shape[1]
+        return self.observation_space.shape[1]
 
     @staticmethod
     def yf_download(symbol: str, start=None, end=None, interval='1d', features=None,

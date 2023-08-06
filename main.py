@@ -1,9 +1,11 @@
+import pandas as pd
+import numpy as np
 import argparse
 from portcullis.sim import Sim
-from portcullis.mem import Mem
-from portcullis.agent import DQN, DDPG, DDPGplus, TD3
+from portcullis.replay import Mem
+from portcullis.agent import DQN, TD3
 from portcullis.env import Env
-from portcullis.daytrader import DayTrader
+from portcullis.traders import DayTrader, FollowSMA, PredictSPY
 from portcullis.portfolio import Portfolio
 from portcullis.ta import SMA, EWMA
 import gymnasium as gym
@@ -40,14 +42,45 @@ def swingtrading_portfolio_sample():
     print('Mean: %.2f %%' % (max_b * 100.0))
 
 
-def create_trading_sim(args):
-    df = Env.yf_download('AAPL', logret_col=None, ta=[
-                         EWMA(8), EWMA(20), SMA(15), SMA(45)])
-    train, _ = Env.split_data(df, test_ratio=0.2)
+def _followSMA(_args) -> Env:
+    df = pd.read_csv('SPY.csv', index_col='Date', parse_dates=True)
+    df['FastSMA'] = df['Close'].rolling(16).mean()
+    df['SlowSMA'] = df['Close'].rolling(33).mean()
+    df['LogReturn'] = np.log(df['Close']).diff()
+    df.dropna(axis=0, how='any', inplace=True)
+    env = FollowSMA(df=df.iloc[:-1000], features=['FastSMA', 'SlowSMA'])
+    return env
+
+
+def _predictSPY(_args) -> Env:
+    df = pd.read_csv('sp500_closefull.csv', index_col=0, parse_dates=True)
+    df.dropna(axis=0, how='all', inplace=True)
+    df.dropna(axis=1, how='any', inplace=True)
+    df_returns = pd.DataFrame()
+    features = ['AAPL', 'MSFT', 'AMZN']
+    for name in features:
+        df_returns[name] = np.log(df[name]).diff()
+    df_returns['SPY'] = np.log(df['SPY']).diff()
+    df_returns.dropna(axis=0, how='any', inplace=True)
+    env = PredictSPY(df=df_returns.iloc[:-1000], features=features)
+    return env
+
+
+def _daytrader(args) -> Env:
+    df = Env.yf_download('AAPL', start='2015-01-01',
+                         features=['Close'], logret_col=None, ta=[])
+
+    train, _ = Env.split_data(df, test_ratio=0.25)
     env = DayTrader(train, balance=10_000, verbose=args.verbose)
+    return env
+
+
+def create_trading_sim(args):
+    env = _predictSPY(args)
+
     agent = None
     if args.algo == 'DQN':
-        agent = DQN(env, mem=Mem(args.replaybuffer_size), hdims=(256, 256), lr=args.lr,
+        agent = DQN(env, mem=Mem(args.replaybuffer_size), hdims=(512, 256), lr=args.lr,
                     gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay,
                     tau=args.tau, name=f'DayTrader_DQNAgent')
     return agent
@@ -61,7 +94,7 @@ def create_gym_sim(args: list[any], render_mode='human') -> any:
     env = gym.make(args.env, render_mode=render_mode)
     agent = None
     if args.algo == 'DQN':
-        agent = DQN(env, mem=Mem(args.replaybuffer_size), hdims=(256, 256), lr=args.lr,
+        agent = DQN(env, mem=Mem(args.replaybuffer_size), hdims=(512, 256), lr=args.lr,
                     gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay,
                     tau=args.tau, name=f'{args.env}_DQNAgent')
     return agent
@@ -72,10 +105,11 @@ def main():
     # Interactive mode
     parser.add_argument('--interactive', default=True, action='store_true')
     # Environment name (gym or native)
-    parser.add_argument('--env', default='DayTrader')
+    # parser.add_argument('--env', default='DayTrader')
+    parser.add_argument('--env', default='CartPole-v1')
     # Algo name (DQN, TD3, DDPG or DDPGplus)
     parser.add_argument('--algo', type=str.upper, default='DQN',
-                        choices=['DQN', 'DDPG', 'DDPGplus', 'TD3'])
+                        choices=['DQN', 'DQN_LAP', 'TD3', 'TD3_LAP'])
     # Number of episodes
     parser.add_argument('--num_episodes', default=1_000,
                         type=int)
@@ -108,7 +142,7 @@ def main():
     # Std of Gaussian exploration noise
     parser.add_argument('--expl_noise', default=0.1, type=float)
     # Batch size for both actor and critic
-    parser.add_argument('--batch_size', default=128, type=int)
+    parser.add_argument('--batch_size', default=1, type=int)
     parser.add_argument('--gamma', default=0.99,
                         type=float)        # Discount factor
     # Target network update rate
@@ -129,10 +163,9 @@ def main():
     parser.add_argument('--path', default=None)
     # path for load/save (None=default path)
 
-    args = parser.parse_args()    
+    args = parser.parse_args()
     print(args)
 
-    
     if args.env == 'DayTrader':
         agent = create_trading_sim(args)
     else:
@@ -146,9 +179,9 @@ def main():
     _, env_type, _, _, _ = Env.get_env_spec(agent.env)
     if env_type == Env.DISCRETE:
         Sim(agent).run(args)
+        # Sim(agent).run_discrete_lap(agent.env, args)
     else:
         assert env_type == Env.CONTINUOUS
-        args.algo = 'DDPG'
         Sim(agent).run_continuous(agent.env, args)
     # ---------------
 

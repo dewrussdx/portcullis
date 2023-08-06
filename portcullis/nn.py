@@ -44,15 +44,16 @@ class NN(nn.Module):
         dst_nn.load_state_dict(dst_d)
 
     @staticmethod
-    def soft_update2(src_nn: nn.Module, dst_nn: nn.Module, tau: float) -> None:
-        """Soft update of the target network's weights.
+    def polyak_copy(src_nn: nn.Module, dst_nn: nn.Module, tau: float) -> None:
+        """Polyak soft update of the target network's weights.
         θ′ ← τ θ + (1 −τ )θ′
         """
-        for src, dst in zip(src_nn.parameters(), dst_nn.parameters()):
-            dst.data.copy_(tau * src.data + (1 - tau) * dst.data)
+        for src_p, dst_p in zip(src_nn.parameters(), dst_nn.parameters()):
+            dst_p.data.copy_(tau * src_p.data + (1 - tau) * dst_p.data)
+
 
     @staticmethod
-    def sync_states(src_nn: nn.Module, dst_nn: nn.Module) -> None:
+    def copy_states(src_nn: nn.Module, dst_nn: nn.Module) -> None:
         """Synchronize states across networks.
         """
         dst_nn.load_state_dict(src_nn.state_dict())
