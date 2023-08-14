@@ -1,112 +1,29 @@
-from collections import deque, namedtuple
 import numpy as np
-import random
 import torch
 from portcullis.pytorch import DEVICE
-from itertools import islice
-
-Frag = namedtuple(
-    'Fragment', ('state', 'action', 'reward', 'next_state'))
-
-
-class Mem():
-
-    def __init__(self, capacity: int):
-        self.capacity = capacity
-        self.fragments = deque([], maxlen=self.capacity)
-
-    def sample(self, size: int) -> list[Frag]:
-        return random.sample(self.fragments, k=size)
-
-    def push(self, *args) -> None:
-        self.fragments.append(Frag(*args))
-
-    def clear(self) -> None:
-        self.fragments.clear()
-
-    def __len__(self) -> int:
-        return self.size()
-
-    def size(self) -> int:
-        return len(self.fragments)
-
-
-class FifoBuffer():
-    def __init__(self):
-        self.fragments = list()
-
-    def sample(self, size: int) -> list[Frag]:
-        items = self.fragments[:size]
-        del self.fragments[:size]
-        return items
-
-    def push(self, *args) -> None:
-        self.fragments.append(Frag(*args))
-
-    def clear(self) -> None:
-        self.fragments.clear()
-
-    def __len__(self) -> int:
-        return self.size()
-
-    def size(self) -> int:
-        return len(self.fragments)
 
 
 class ReplayBuffer():
-    def __init__(self, state_dim, action_dim, max_size=int(1e6)):
-        self.max_size = max_size
-        self.ptr = 0
-        self.size = 0
+    """Initialize replay buffer.
+    """
 
-        self.state = np.zeros((max_size, state_dim))
-        self.action = np.zeros((max_size, action_dim))
-        self.next_state = np.zeros((max_size, state_dim))
-        self.reward = np.zeros((max_size, 1))
-        self.not_done = np.zeros((max_size, 1))
-
-    def add(self, state, action, next_state, reward, done):
-        self.state[self.ptr] = state
-        self.action[self.ptr] = action
-        self.next_state[self.ptr] = next_state
-        self.reward[self.ptr] = reward
-        self.not_done[self.ptr] = 1. - float(done)
-
-        self.ptr = (self.ptr + 1) % self.max_size
-        self.size = min(self.size + 1, self.max_size)
-
-    def sample(self, batch_size):
-        ind = np.random.randint(0, self.size, size=batch_size)
-
-        return (
-            torch.FloatTensor(self.state[ind]).to(DEVICE),
-            torch.FloatTensor(self.action[ind]).to(DEVICE),
-            torch.FloatTensor(self.next_state[ind]).to(DEVICE),
-            torch.FloatTensor(self.reward[ind]).to(DEVICE),
-            torch.FloatTensor(self.not_done[ind]).to(DEVICE),
-        )
-
-# Priotized Replay Buffer
-
-
-class PriotizedReplayBuffer():
-    def __init__(self, state_dim, prioritized, batch_size, buffer_size):
+    def __init__(self, state_dim: int, capacity: int = 10_000, batch_size: int = 64, is_prioritized: bool = True):
+        self.capacity = capacity
         self.batch_size = batch_size
-        self.max_size = int(buffer_size)
 
         self.ptr = 0
         self.size = 0
 
-        self.state = np.zeros((self.max_size, state_dim))
-        self.action = np.zeros((self.max_size, 1))
+        self.state = np.zeros((self.capacity, state_dim))
+        self.action = np.zeros((self.capacity, 1))
         self.next_state = np.array(self.state)
-        self.reward = np.zeros((self.max_size, 1))
-        self.not_done = np.zeros((self.max_size, 1))
+        self.reward = np.zeros((self.capacity, 1))
+        self.not_done = np.zeros((self.capacity, 1))
 
-        self.prioritized = prioritized
+        self.is_prioritized = is_prioritized
 
-        if self.prioritized:
-            self.tree = SumTree(self.max_size)
+        if self.is_prioritized:
+            self.tree = SumTree(self.capacity)
             self.max_priority = 1.0
             self.beta = 0.4
 
@@ -117,14 +34,19 @@ class PriotizedReplayBuffer():
         self.reward[self.ptr] = reward
         self.not_done[self.ptr] = 1. - float(done)
 
-        if self.prioritized:
+        if self.is_prioritized:
             self.tree.set(self.ptr, self.max_priority)
 
-        self.ptr = (self.ptr + 1) % self.max_size
-        self.size = min(self.size + 1, self.max_size)
+        self.ptr = (self.ptr + 1) % self.capacity
+        self.size = min(self.size + 1, self.capacity)
+
+    def __len__(self):
+        return self.size
 
     def sample(self):
-        ind = self.tree.sample(self.batch_size) if self.prioritized \
+        """Sample memory uniformly (non-prioritized), or weighted by priority.
+        """
+        ind = self.tree.sample(self.batch_size) if self.is_prioritized \
             else np.random.randint(0, self.size, size=self.batch_size)
 
         batch = (
@@ -135,7 +57,7 @@ class PriotizedReplayBuffer():
             torch.FloatTensor(self.not_done[ind]).to(DEVICE)
         )
 
-        if self.prioritized:
+        if self.is_prioritized:
             weights = np.array(self.tree.nodes[-1][ind]) ** -self.beta
             weights /= weights.max()
             # Hardcoded: 0.4 + 2e-7 * 3e6 = 1.0. Only used by PER.
@@ -144,18 +66,25 @@ class PriotizedReplayBuffer():
 
         return batch
 
+    def usage(self) -> float:
+        """Return buffer usage in percent.
+        """
+        return self.size * 100. / self.capacity
+
     def update_priority(self, ind, priority):
+        """Update priority for entry at specificed index.
+        """
         self.max_priority = max(priority.max(), self.max_priority)
         self.tree.batch_set(ind, priority)
 
 
 class SumTree(object):
-    def __init__(self, max_size):
+    def __init__(self, capacity: int):
         self.nodes = []
         # Tree construction
         # Double the number of nodes at each level
         level_size = 1
-        for _ in range(int(np.ceil(np.log2(max_size))) + 1):
+        for _ in range(int(np.ceil(np.log2(capacity))) + 1):
             nodes = np.zeros(level_size)
             self.nodes.append(nodes)
             level_size *= 2

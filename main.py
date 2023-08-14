@@ -2,12 +2,12 @@ import pandas as pd
 import numpy as np
 import argparse
 from portcullis.sim import Sim
-from portcullis.replay import Mem
+from portcullis.replay import ReplayBuffer
 from portcullis.agent import DQN, TD3
 from portcullis.env import Env
 from portcullis.traders import DayTrader, TrendFollow, PredictSPY, PredictUpDown
 from portcullis.portfolio import Portfolio
-from portcullis.ta import SMA, EWMA
+from portcullis.ta import EWMA
 import gymnasium as gym
 
 DEFAULT_RNG_SEED = 2170596287
@@ -85,12 +85,14 @@ def _daytrader(args) -> Env:
 
 def create_trading_sim(args, dispatcher):
     env = dispatcher[args.env.lower()](args)
-    print('Trading Environment:', env.name)
+    print('Native Trading Environment:', env.name)
+    _, _, _, state_dim, _ = Env.get_env_spec(env)
+    replay_buffer = ReplayBuffer(
+        state_dim=state_dim, capacity=args.mem_size, batch_size=args.batch_size)
     agent = None
     if args.algo == 'DQN':
-        agent = DQN(env, mem=Mem(args.mem_size), hdims=(512, 256), lr=args.lr,
-                    gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay,
-                    tau=args.tau, name=f'{env.name}_DQNAgent')
+        agent = DQN(env, mem=replay_buffer, hdims=(512, 256), lr=args.lr, gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay, tau=args.tau,
+                    name=f'{env.name}_DQNAgent')
     return agent
 
 
@@ -100,11 +102,13 @@ def create_gym_sim(args: list[any], render_mode='human') -> any:
     #
     # https://gymnasium.farama.org/
     env = gym.make(args.env, render_mode=render_mode)
+    _, _, _, state_dim, _ = Env.get_env_spec(env)
+    replay_buffer = ReplayBuffer(
+        state_dim=state_dim, capacity=args.mem_size, batch_size=args.batch_size)
     agent = None
     if args.algo == 'DQN':
-        agent = DQN(env, mem=Mem(args.mem_size), hdims=(512, 256), lr=args.lr,
-                    gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay,
-                    tau=args.tau, name=f'{args.env}_DQNAgent')
+        agent = DQN(env, mem=replay_buffer, hdims=(512, 256), lr=args.lr, gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay, tau=args.tau,
+                    name=f'{args.env}_DQNAgent')
     return agent
 
 
@@ -119,7 +123,7 @@ def main():
     parser.add_argument('--algo', type=str.upper, default='DQN',
                         choices=['DQN', 'DQN_LAP', 'TD3', 'TD3_LAP'])
     # Number of episodes
-    parser.add_argument('--num_episodes', default=1_000,
+    parser.add_argument('--num_episodes', default=500,
                         type=int)
     # Replaybuffer size
     parser.add_argument('--mem_size',
@@ -139,16 +143,12 @@ def main():
     # Epsilon Decay
     parser.add_argument('--eps_decay', default=1e3, type=float)
 
-    # Time steps initial random policy is used
-    parser.add_argument('--start_timesteps', default=0, type=int)  # 25e3
     # How often (time steps) we evaluate
     parser.add_argument('--eval_freq', default=5e3, type=int)
-    # Max time steps to run environment
-    parser.add_argument('--max_timesteps', default=1e7, type=int)
     # Std of Gaussian exploration noise
     parser.add_argument('--expl_noise', default=0.1, type=float)
     # Batch size for both actor and critic
-    parser.add_argument('--batch_size', default=128, type=int)
+    parser.add_argument('--batch_size', default=64, type=int)
     parser.add_argument('--gamma', default=0.99,
                         type=float)        # Discount factor
     # Target network update rate

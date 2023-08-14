@@ -3,12 +3,10 @@ from portcullis.env import Env
 import matplotlib.pyplot as plt
 import random
 from time import time
-import sys
 import torch
 import numpy as np
-from portcullis.agent import TD3, LAP_DDQN
-from portcullis.replay import ReplayBuffer, PriotizedReplayBuffer
-import copy
+from portcullis.agent import TD3
+from portcullis.replay import ReplayBuffer
 
 
 class Sim:
@@ -20,7 +18,7 @@ class Sim:
 
     def run(self, args) -> None:
         env: Env = self.agent.env
-        is_gym, env_type, _, _, _ = Env.get_env_spec(env)
+        is_gym, env_type, _, state_dim, _ = Env.get_env_spec(env)
         assert env_type == Env.DISCRETE
 
         print('Seeding simulation:', args.seed)
@@ -34,69 +32,73 @@ class Sim:
         if args.load:
             self.agent.load(path=args.path)
         self.agent.set_mode(training)
-
         state, _ = env.reset(seed=args.seed)
-        done = False
-        score = 0
-        episode_timesteps = 0
-        episode_num = 0
-        total_time = 0.0
+
+        # Prefill replay buffer
+        if training:
+            print('Filling up replay buffer before training starts...')
+            desired_size = args.batch_size * 4
+            while self.agent.mem.size < desired_size:
+                action = env.action_space.sample() if is_gym else env.random_action()
+                next_state, reward, done, trunc, _ = env.step(action)
+                done = done or trunc
+                self.agent.mem.add(state, action, next_state, reward, done)
+                if done:
+                    state, _ = env.reset()
+            state, _ = env.reset()
+
+        print('Simulation is starting...')
+        # Set simulation to initial state
+        score = 0.
+        episode_ticks = 0
+        episode_count = 0
+        total_time = 0.
         timer = time()
 
-        for t in range(int(args.max_timesteps)):
-            episode_timesteps += 1
+        while episode_count < args.num_episodes:
+            episode_ticks += 1
 
-            # Select action randomly or according to policy
-            if t < args.start_timesteps:
-                action = env.action_space.sample() if is_gym else env.random_action()
-            else:
-                action = self.agent.act(np.array(state))
+            # Select action
+            action = self.agent.act(state)
 
             # Perform action
             next_state, reward, done, trunc, _ = env.step(action)
-            done = done or (trunc if episode_timesteps < env._max_episode_steps else False)
+            done = done or (trunc if episode_ticks <
+                            env._max_episode_steps else False)
 
             # Store data in replay buffer
-            self.agent.remember(state, action, next_state, reward, done)
+            if training:
+                self.agent.remember(state, action, next_state, reward, done)
 
             state = next_state
             score += reward
 
-            # Train agent after collecting sufficient data
-            if t >= args.start_timesteps:
-                self.agent.train(args.batch_size)
+            if training:
+                self.agent.train()
 
             if done:
                 # checkpoint
+                episode_count += 1
                 if self.agent.is_highscore(score):
                     if args.save:
                         self.agent.save()
 
-                # Print status update
                 elapsed = time() - timer
                 total_time += elapsed
                 print(
-                    f'#{episode_num+1}: T:{t}',
+                    f'#{episode_count}:',
                     f'[TRAIN:{args.algo}]' if self.agent.training else f'[EVAL:{args.algo}]',
-                    f'Score: {score:.2f} / {self.agent.high_score:.2f}',
-                    f'Eps: {self.agent.eps:.4f}',
-                    f'Mem: {episode_timesteps} / {self.agent.mem.size()}',
-                    f'Time: {elapsed:.2f} / {total_time:.2f}',
+                    f'Score:{score:.2f}/{self.agent.high_score:.2f}',
+                    f'Eps:{self.agent.eps:.4f}',
+                    f'Mem:{self.agent.mem.usage():.2f}%',
+                    f'Time:{elapsed:.2f}/{total_time:.2f}',
                 )
+
                 # Reset environment
                 timer = time()
-                done = False
                 state, _ = env.reset()
-                elapsed = 0.
                 score = 0.
-                episode_timesteps = 0
-                episode_num += 1
-
-            # Evaluate episode
-            if (t + 1) % args.eval_freq == 0:
-                # evaluations.append(self.eval_policy(policy, args.env, args.seed))
-                # np.save(f"./results/{file_name}", evaluations)
-                pass
+                episode_ticks = 0
 
         env.close()
 
@@ -187,118 +189,3 @@ class Sim:
                 # np.save(f"./results/{file_name}", evaluations)
                 if args.save:
                     policy.save(args.path)
-
-    def run_discrete_lap(self, env, args):
-        # Set seeds
-        torch.manual_seed(args.seed)
-        np.random.seed(args.seed)
-        random.seed(args.seed)
-
-        # Initialize and load policy
-        parameters = {
-            # LAP/PAL
-            "alpha": 0.4,
-            "min_priority": 1,
-            # Exploration
-            "start_timesteps": 1e4,
-            "initial_eps": 0.1,
-            "end_eps": 0.1,
-            "eps_decay_period": 25e4,
-            # Evaluation
-            "eval_freq": 1e3,
-            "eval_eps": 0,
-            # Learning
-            "discount": 0.99,
-            "buffer_size": 1e6,
-            "batch_size": 64,
-            "optimizer": "Adam",
-            "optimizer_parameters": {
-                "lr": 3e-4
-            },
-            "train_freq": 1,
-            "polyak_target_update": True,
-            "target_update_freq": 1,
-            "tau": 0.005
-        }
-
-        is_gym, env_type, num_actions, state_dim, _ = Env.get_env_spec(env)
-        assert env_type == Env.DISCRETE
-
-        kwargs = {
-            "num_actions": num_actions,
-            "state_dim": state_dim,
-            "discount": parameters["discount"],
-            "optimizer": parameters["optimizer"],
-            "optimizer_parameters": parameters["optimizer_parameters"],
-            "polyak_target_update": parameters["polyak_target_update"],
-            "target_update_frequency": parameters["target_update_freq"],
-            "tau": parameters["tau"],
-            "initial_eps": parameters["initial_eps"],
-            "end_eps": parameters["end_eps"],
-            "eps_decay_period": parameters["eps_decay_period"],
-            "eval_eps": parameters["eval_eps"],
-            "alpha": parameters["alpha"],
-            "min_priority": parameters["min_priority"],
-        }
-
-        policy = LAP_DDQN(**kwargs)
-
-        prioritized = True
-        replay_buffer = PriotizedReplayBuffer(
-            state_dim,
-            prioritized,
-            parameters["batch_size"],
-            parameters["buffer_size"],
-        )
-
-        state, _ = env.reset(seed=args.seed)
-        done = False
-        episode_start = True
-        episode_reward = 0
-        episode_timesteps = 0
-        episode_num = 0
-
-        # Interact with the environment for max_timesteps
-        for t in range(int(args.max_timesteps)):
-
-            episode_timesteps += 1
-
-            # if args.train_behavioral:
-            if t < parameters["start_timesteps"]:
-                action = env.action_space.sample() if is_gym else env.random_action()
-            else:
-                action = policy.select_action(np.array(state))
-
-            # Perform action and log results
-            next_state, reward, done, trunc, _ = env.step(action)
-            episode_reward += reward
-
-            # Only consider "done" or "trunc" if episode terminates due to failure condition
-            done_float = float(
-                done or trunc) if episode_timesteps < env._max_episode_steps else 0
-
-            # Store data in replay buffer
-            replay_buffer.add(state, action, next_state,
-                              reward, done_float)  # add (done, episode_start)
-            state = copy.copy(next_state)
-            episode_start = False
-
-            # Train agent after collecting sufficient data
-            if t >= parameters["start_timesteps"] and (t + 1) % parameters["train_freq"] == 0:
-                policy.train(replay_buffer)
-
-            if done:
-                # +1 to account for 0 indexing. +0 on ep_timesteps since it will increment +1 even if done=True
-                print(
-                    f"Total T: {t+1} Episode Num: {episode_num+1} Episode T: {episode_timesteps} Reward: {episode_reward:.3f}")
-                # Reset environment
-                state, _ = env.reset()
-                done = False
-                episode_start = True
-                episode_reward = 0
-                episode_timesteps = 0
-                episode_num += 1
-
-            # Evaluate episode
-            if (t + 1) % parameters["eval_freq"] == 0:
-                print('EPSILON =>', policy.eps)
