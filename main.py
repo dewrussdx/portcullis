@@ -5,7 +5,7 @@ from portcullis.sim import Sim
 from portcullis.replay import Mem
 from portcullis.agent import DQN, TD3
 from portcullis.env import Env
-from portcullis.traders import DayTrader, FollowSMA, PredictSPY
+from portcullis.traders import DayTrader, TrendFollow, PredictSPY, PredictUpDown
 from portcullis.portfolio import Portfolio
 from portcullis.ta import SMA, EWMA
 import gymnasium as gym
@@ -42,13 +42,12 @@ def swingtrading_portfolio_sample():
     print('Mean: %.2f %%' % (max_b * 100.0))
 
 
-def _followSMA(_args) -> Env:
-    df = pd.read_csv('SPY.csv', index_col='Date', parse_dates=True)
-    df['FastSMA'] = df['Close'].rolling(16).mean()
-    df['SlowSMA'] = df['Close'].rolling(33).mean()
-    df['LogReturn'] = np.log(df['Close']).diff()
-    df.dropna(axis=0, how='any', inplace=True)
-    env = FollowSMA(df=df.iloc[:-1000], features=['FastSMA', 'SlowSMA'])
+def _trendFollow(_args, lookback: int = 7) -> Env:
+    features = ['Close']
+    df = Env.yf_download('AMZN', start='2015-01-01',
+                         features=features, logret_col=None, ta=[EWMA(20), EWMA(8)])
+    train, _ = Env.split_data(df, test_ratio=0.25)
+    env = TrendFollow(train, features)
     return env
 
 
@@ -66,6 +65,15 @@ def _predictSPY(_args) -> Env:
     return env
 
 
+def _predictUpDown(_args) -> Env:
+    features = ['Close', 'EWMA_8', 'EWMA_20']
+    df = Env.yf_download('AAPL', start='2015-01-01',
+                         features=features, logret_col='Close', ta=[EWMA(8), EWMA(20)])
+    train, _ = Env.split_data(df, test_ratio=0.25)
+    env = PredictUpDown(train, features)
+    return env
+
+
 def _daytrader(args) -> Env:
     df = Env.yf_download('AAPL', start='2015-01-01',
                          features=['Close'], logret_col=None, ta=[])
@@ -75,14 +83,14 @@ def _daytrader(args) -> Env:
     return env
 
 
-def create_trading_sim(args):
-    env = _predictSPY(args)
-
+def create_trading_sim(args, dispatcher):
+    env = dispatcher[args.env.lower()](args)
+    print('Trading Environment:', env.name)
     agent = None
     if args.algo == 'DQN':
-        agent = DQN(env, mem=Mem(args.replaybuffer_size), hdims=(512, 256), lr=args.lr,
+        agent = DQN(env, mem=Mem(args.mem_size), hdims=(512, 256), lr=args.lr,
                     gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay,
-                    tau=args.tau, name=f'DayTrader_DQNAgent')
+                    tau=args.tau, name=f'{env.name}_DQNAgent')
     return agent
 
 
@@ -94,7 +102,7 @@ def create_gym_sim(args: list[any], render_mode='human') -> any:
     env = gym.make(args.env, render_mode=render_mode)
     agent = None
     if args.algo == 'DQN':
-        agent = DQN(env, mem=Mem(args.replaybuffer_size), hdims=(512, 256), lr=args.lr,
+        agent = DQN(env, mem=Mem(args.mem_size), hdims=(512, 256), lr=args.lr,
                     gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay,
                     tau=args.tau, name=f'{args.env}_DQNAgent')
     return agent
@@ -114,7 +122,7 @@ def main():
     parser.add_argument('--num_episodes', default=1_000,
                         type=int)
     # Replaybuffer size
-    parser.add_argument('--replaybuffer_size',
+    parser.add_argument('--mem_size',
                         default=10_000, type=int)
     # Learning rate
     parser.add_argument('--lr',
@@ -124,25 +132,23 @@ def main():
                         default='train', choices=['train', 'eval'])
     # Sets Gym, PyTorch and Numpy seeds
     parser.add_argument('--seed', default=DEFAULT_RNG_SEED, type=int)
-    # Ignore episode truncation flag
-    parser.add_argument('--ignore_trunc', default=False, action='store_true')
     # Epsilon Initial
-    parser.add_argument('--eps', default=1.0, type=float)
+    parser.add_argument('--eps', default=0.9, type=float)
     # Epsilon Minimum
-    parser.add_argument('--eps_min', default=0.005, type=float)
+    parser.add_argument('--eps_min', default=0.05, type=float)
     # Epsilon Decay
-    parser.add_argument('--eps_decay', default=0.9995, type=float)
+    parser.add_argument('--eps_decay', default=1e3, type=float)
 
     # Time steps initial random policy is used
-    parser.add_argument('--start_timesteps', default=1_000, type=int)  # 25e3
+    parser.add_argument('--start_timesteps', default=0, type=int)  # 25e3
     # How often (time steps) we evaluate
     parser.add_argument('--eval_freq', default=5e3, type=int)
     # Max time steps to run environment
-    parser.add_argument('--max_timesteps', default=1e6, type=int)
+    parser.add_argument('--max_timesteps', default=1e7, type=int)
     # Std of Gaussian exploration noise
     parser.add_argument('--expl_noise', default=0.1, type=float)
     # Batch size for both actor and critic
-    parser.add_argument('--batch_size', default=1, type=int)
+    parser.add_argument('--batch_size', default=128, type=int)
     parser.add_argument('--gamma', default=0.99,
                         type=float)        # Discount factor
     # Target network update rate
@@ -166,8 +172,14 @@ def main():
     args = parser.parse_args()
     print(args)
 
-    if args.env == 'DayTrader':
-        agent = create_trading_sim(args)
+    trader_dispatcher = {
+        'predictupdown': _predictUpDown,
+        'predictspy': _predictSPY,
+        'trendfollow': _trendFollow,
+        'daytrader': _daytrader,
+    }
+    if args.env.lower() in trader_dispatcher.keys():
+        agent = create_trading_sim(args, trader_dispatcher)
     else:
         agent = create_gym_sim(args)
     assert agent is not None

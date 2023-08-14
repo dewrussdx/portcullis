@@ -50,21 +50,23 @@ class Env():
         import yfinance as yf
         # Download candlesticks and drop rows with invalid indices
         df = yf.download(symbol, start=start, end=end, interval=interval)
-        # Keep only feature columns if specified
-        if features is not None:
-            df = df.loc[:, features]
         # Add indicators as specified
         ta = ta or []
         for indicator in ta:
             df = indicator(df)
+        # Keep only feature columns if specified
+        if features is not None:
+            df_ret = df.loc[:, features]
+        else:
+            df_ret = df
         # Add log returns froms requested column
         if logret_col:
             assert logret_col in df and 'Requested column not found in dataset. Unable to compute log return.'
-            df['LogReturn'] = np.log(df[logret_col]).diff()
+            df_ret['LogReturn'] = np.log(df[logret_col]).diff()
         # Drop all rows containing any N/A columns
-        df.dropna(axis=0, how='any', inplace=True)
+        df_ret.dropna(axis=0, how='any', inplace=True)
         # Return parsed dataframe and new feature set
-        return df
+        return df_ret
 
     @staticmethod
     def split_data(df: pd.DataFrame, test_ratio=0.25) -> (pd.DataFrame, pd.DataFrame):

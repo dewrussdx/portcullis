@@ -125,14 +125,14 @@ class DayTrader(Env):
         return next_state, reward, done, False, None
 
 
-class FollowSMA(Env):
+class TrendFollow(Env):
     NONE: Action = 0
     BUY: Action = 1
     SELL: Action = 2
 
     def __init__(self, df, features):
-        super().__init__(name='FollowSMA', env_type=Env.DISCRETE, action_space=np.array([
-            FollowSMA.NONE, FollowSMA.BUY, FollowSMA.SELL]), observation_space=df[features].to_numpy(dtype=np.float32))
+        super().__init__(name='TrendFollow', env_type=Env.DISCRETE, action_space=np.array([
+            TrendFollow.NONE, TrendFollow.BUY, TrendFollow.SELL]), observation_space=df[features].to_numpy(dtype=np.float32))
 
         self.df = df
         self.features = features
@@ -150,9 +150,9 @@ class FollowSMA(Env):
         like so: next_state, reward, done, truncated, info = env.step(action)
         """
         self.index += 1
-        if action == FollowSMA.BUY:
+        if action == TrendFollow.BUY:
             self.invested = 1.
-        elif action == FollowSMA.SELL:
+        elif action == TrendFollow.SELL:
             self.invested = 0.
         next_state = self.observation_space[self.index]
         reward = self.rewards[self.index] * self.invested
@@ -189,6 +189,38 @@ class PredictSPY(Env):
         elif action == PredictSPY.SELL:
             self.invested = 0.
         next_state = self.observation_space[self.index]
+        reward = self.rewards[self.index] * self.invested
         done = self.index >= self.max_steps
-        reward = self.rewards[self.index] * self.invested if not done else 0.
+        return next_state, reward, done, False, None
+
+
+class PredictUpDown(Env):
+    UP: Action = 0
+    DOWN: Action = 1
+
+    def __init__(self, df, features):
+        super().__init__(name='PredictUpDown', env_type=Env.DISCRETE, action_space=np.array([
+            PredictUpDown.UP, PredictUpDown.DOWN]), observation_space=df[features].to_numpy(dtype=np.float32))
+        self.df = df
+        self.features = features
+        self.returns = self.df['LogReturn'].to_numpy(dtype=np.float32)
+        self.reset()
+
+    def reset(self, seed: int = None) -> tuple[State, any]:
+        return super().reset(seed)
+
+    def step(self, action: Action) -> tuple[State, float, bool, bool, any]:
+        """Perform a action in this environment and compute the reward, for the MDP. This function 
+        returns the next state, the reward, if simulation is done or truncated. Note that to stay compatible
+        with the gym environments we also return 'info' as last parameter and with None value in the tuple,
+        like so: next_state, reward, done, truncated, info = env.step(action)
+        """
+        self.index += 1
+        reward = 0
+        if action == PredictUpDown.UP:
+            reward += 1 if self.returns[self.index] > 0 else -1
+        elif action == PredictUpDown.DOWN:
+            reward += 1 if self.returns[self.index] <= 0 else -1
+        next_state = self.observation_space[self.index]
+        done = self.index >= self.max_steps
         return next_state, reward, done, False, None

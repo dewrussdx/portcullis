@@ -15,12 +15,14 @@ class Sim:
     def __init__(self, agent: Agent):
         self.agent = agent
 
-    def plot(self) -> None:
+    def plot(self, train, test) -> None:
         plt.show()
 
     def run(self, args) -> None:
-        total_time = 0.0
         env: Env = self.agent.env
+        is_gym, env_type, _, _, _ = Env.get_env_spec(env)
+        assert env_type == Env.DISCRETE
+
         print('Seeding simulation:', args.seed)
         torch.manual_seed(args.seed)
         random.seed(args.seed)
@@ -32,53 +34,70 @@ class Sim:
         if args.load:
             self.agent.load(path=args.path)
         self.agent.set_mode(training)
-        for i in range(args.num_episodes):
-            score = 0.0
-            samples = 0
-            done = False
-            state, _ = env.reset()
-            timer = time()
-            try:
-                while not done:
-                    samples += 1
-                    self.agent.env.render()
-                    action = self.agent.act(state)
-                    next_state, reward, done, trunc, _ = env.step(action)
-                    if not args.ignore_trunc:
-                        done = done or trunc
-                    if self.agent.training:
-                        self.agent.remember(
-                            state, action, reward, next_state, done)
-                        self.agent.train(args.batch_size)
-                        self.agent.dec_eps()
-                    state = next_state
-                    score += reward
-            except KeyboardInterrupt:
-                if args.interactive:
-                    while True:
-                        print('Simulation interrupted.')
-                        print('(1) Continue')
-                        print('(2) Exit')
-                        choice = input()
-                        if choice == '1':
-                            break
-                        elif choice == '2':
-                            sys.exit(0)
-            if self.agent.training:
+
+        state, _ = env.reset(seed=args.seed)
+        done = False
+        score = 0
+        episode_timesteps = 0
+        episode_num = 0
+        total_time = 0.0
+        timer = time()
+
+        for t in range(int(args.max_timesteps)):
+            episode_timesteps += 1
+
+            # Select action randomly or according to policy
+            if t < args.start_timesteps:
+                action = env.action_space.sample() if is_gym else env.random_action()
+            else:
+                action = self.agent.act(np.array(state))
+
+            # Perform action
+            next_state, reward, done, trunc, _ = env.step(action)
+            done = done or (trunc if episode_timesteps < env._max_episode_steps else False)
+
+            # Store data in replay buffer
+            self.agent.remember(state, action, next_state, reward, done)
+
+            state = next_state
+            score += reward
+
+            # Train agent after collecting sufficient data
+            if t >= args.start_timesteps:
+                self.agent.train(args.batch_size)
+
+            if done:
+                # checkpoint
                 if self.agent.is_highscore(score):
                     if args.save:
-                        self.agent.save(path=args.path)
-            elapsed = time() - timer
-            total_time += elapsed
-            # Status line
-            print(
-                f'#{i+1}:',
-                f'[TRAIN:{args.algo}]' if self.agent.training else f'[EVAL:{args.algo}]',
-                f'Score: {score:.2f} / {self.agent.high_score:.2f}',
-                f'Eps: {self.agent.eps:.4f}',
-                f'Mem: {samples} / {self.agent.mem.size()}',
-                f'Time: {elapsed:.2f} / {total_time:.2f}',
-            )
+                        self.agent.save()
+
+                # Print status update
+                elapsed = time() - timer
+                total_time += elapsed
+                print(
+                    f'#{episode_num+1}: T:{t}',
+                    f'[TRAIN:{args.algo}]' if self.agent.training else f'[EVAL:{args.algo}]',
+                    f'Score: {score:.2f} / {self.agent.high_score:.2f}',
+                    f'Eps: {self.agent.eps:.4f}',
+                    f'Mem: {episode_timesteps} / {self.agent.mem.size()}',
+                    f'Time: {elapsed:.2f} / {total_time:.2f}',
+                )
+                # Reset environment
+                timer = time()
+                done = False
+                state, _ = env.reset()
+                elapsed = 0.
+                score = 0.
+                episode_timesteps = 0
+                episode_num += 1
+
+            # Evaluate episode
+            if (t + 1) % args.eval_freq == 0:
+                # evaluations.append(self.eval_policy(policy, args.env, args.seed))
+                # np.save(f"./results/{file_name}", evaluations)
+                pass
+
         env.close()
 
     def run_continuous(self, env, args):
@@ -201,7 +220,6 @@ class Sim:
             "target_update_freq": 1,
             "tau": 0.005
         }
-       
 
         is_gym, env_type, num_actions, state_dim, _ = Env.get_env_spec(env)
         assert env_type == Env.DISCRETE
@@ -283,5 +301,4 @@ class Sim:
 
             # Evaluate episode
             if (t + 1) % parameters["eval_freq"] == 0:
-                print('EPSILON =>',policy.eps)
-       
+                print('EPSILON =>', policy.eps)

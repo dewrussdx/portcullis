@@ -10,6 +10,7 @@ from portcullis.replay import Mem, Frag
 from portcullis.pytorch import DEVICE
 import os
 import copy
+import math
 
 
 class Agent():
@@ -24,16 +25,19 @@ class Agent():
         self.hdims = hdims
         self.lr = lr
         self.gamma = gamma
-        self.eps = eps
+        # TODO: Some of these params only apply to specific agents
+        self.eps = eps  # For reporting
+        self.eps_init = eps
         self.eps_min = eps_min
         self.eps_decay = eps_decay
+        self.eps_slope = (self.eps_min - self.eps_init) / self.eps_decay
         self.tau = tau
         self.name = name
         self.training = None
         self.epochs = 0
         self.scores = []
         self.high_score = -1e10
-        self.gym_env, self.env_type, self.num_actions, self.num_features, self.max_actions = Env.get_env_spec(
+        self.is_gym, self.env_type, self.num_actions, self.num_features, self.max_actions = Env.get_env_spec(
             self.env)
 
     # Save agent state
@@ -92,7 +96,14 @@ class Agent():
     def dec_eps(self) -> float:
         """Decrement exploration rate (epsilon-greedy).
         """
-        self.eps = max(self.eps_min, self.eps * self.eps_decay)
+        self.eps = max(self.eps_slope * self.epochs +
+                       self.eps_init, self.eps_min)
+        return self.eps
+
+    def dec_eps2(self) -> float:
+        self.eps = self.eps_min + \
+            (self.eps_init - self.eps_min) * \
+            math.exp(-1. * self.epochs / self.eps_decay)
         return self.eps
 
     def set_mode(self, training: bool) -> bool:
@@ -135,12 +146,12 @@ class DQN(Agent):
     def __init__(self,
                  env: Env,
                  mem: Mem = Mem(65336),
-                 hdims: (int, int) = (256, 256),
-                 lr: float = 0.001,
+                 hdims: (int, int) = (512, 256),
+                 lr: float = 1e-4,
                  gamma: float = 0.99,
                  eps: float = 1.0,
                  eps_min: float = 0.01,
-                 eps_decay: float = 0.99,
+                 eps_decay: float = 25e4,
                  tau: float = 0.005,
                  training: bool = True,
                  name: str = 'DQN'
@@ -168,13 +179,12 @@ class DQN(Agent):
                 print('Evaluating policy network')
                 self.nn_p.eval()
 
-    def train(self, batch_size: int = 256, soft_update=False) -> None:
-        # Book keeping
-        self.epochs += 1
-
+    def train(self, batch_size: int = 128, soft_update=True) -> None:
         # Sample memory
         if len(self.mem) < batch_size:
             return
+        # Book keeping
+        self.epochs += 1
         frags = self.mem.sample(batch_size)
         # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
         # detailed explanation). This converts batch-array of Transitions
@@ -193,7 +203,7 @@ class DQN(Agent):
             arr) > 0 else torch.zeros(state_batch.shape, device=DEVICE)
 
         # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
-        # columns of actions taken. These are the actions which would've been taken
+        # columns of asctions taken. These are the actions which would've been taken
         # for each batch state according to policy_net
         state_action_values = self.nn_p(state_batch).gather(1, action_batch)
 
@@ -223,16 +233,17 @@ class DQN(Agent):
 
         if soft_update:
             # Target network soft update (blending of states)
-            NN.polyak_copy(self.nn_p, self.nn_t, self.tau)
+            NN.soft_update(self.nn_p, self.nn_t, self.tau)
         else:
-            NN.copy_states(self.nn_p, self.nn_t)
+            NN.hard_update(self.nn_p, self.nn_t)
 
     def act(self, state) -> Action:
         """Returns action for given state as per current policy.
         """
-        if np.random.rand() <= self.eps and self.training:  # amount of exploration reduces with the epsilon value
-            # Return random action from action space
-            return self.env.action_space.sample() if self.gym_env else self.env.random_action()
+        if self.training:
+            if np.random.rand() <= self.dec_eps2():  # amount of exploration reduces with the epsilon value
+                # Return random action from action space
+                return self.env.action_space.sample() if self.is_gym else self.env.random_action()
 
         if not torch.is_tensor(state):
             state = torch.tensor(state, dtype=torch.float32,
@@ -246,16 +257,15 @@ class DQN(Agent):
             action = self.nn_p(state).max(1)[1].view(1, 1)
             return action.item()
 
-    def remember(self, state: State, action: Action, reward: float, next_state: State, done: bool) -> None:
+    def remember(self, state: State, action: Action, next_state: State, reward: float, done: bool) -> None:
         """Remember a transition fragment and store in replay memory.
         """
-        assert self.training
         state = torch.tensor(state, dtype=torch.float32,
                              device=DEVICE).unsqueeze(0)
         action = torch.tensor([[action]], dtype=torch.long, device=DEVICE)
-        reward = torch.tensor([reward], dtype=torch.float32, device=DEVICE)
         next_state = torch.tensor(
             next_state, dtype=torch.float32, device=DEVICE).unsqueeze(0) if not done else None
+        reward = torch.tensor([reward], dtype=torch.float32, device=DEVICE)
         self.mem.push(state, action, reward, next_state)
 
     def load(self, path: str = None, verbose: bool = True) -> None:
@@ -269,6 +279,7 @@ class DQN(Agent):
             self.nn_t.optimizer.load_state_dict(checkpoint['opt_t'])
             self.criterion = checkpoint['criterion']
             self.eps = checkpoint['eps']
+            self.eps_init = checkpoint['eps_init']
             self.eps_min = checkpoint['eps_min']
             self.eps_decay = checkpoint['eps_decay']
 
@@ -282,6 +293,7 @@ class DQN(Agent):
             'opt_t': self.nn_t.optimizer.state_dict(),
             'criterion': self.criterion,
             'eps': self.eps,
+            'eps_init': self.eps_init,
             'eps_min': self.eps_min,
             'eps_decay': self.eps_decay,
         }
