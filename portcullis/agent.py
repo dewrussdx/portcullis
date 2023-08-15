@@ -79,7 +79,6 @@ class Agent():
         self.scores = checkpoint['scores']
         self.high_score = checkpoint['high_score']
         self.env.reset(seed=seed)
-        self.mem.clear()
         if verbose:
             print(
                 f'Loaded agent {path}: Epochs={self.epochs}, Score={self.high_score}')
@@ -166,9 +165,8 @@ class DQN(Agent):
                             self.lr, name='DQN_Policy')
         self.nn_t = DQN.Net(self.state_dim, self.hdims, self.action_dim,
                             self.lr, name='DQN_Target')
-        self.nn_p.optimizer = torch.optim.AdamW(
-            self.nn_p.parameters(), lr=self.lr, amsgrad=True)
-        self.criterion = torch.nn.SmoothL1Loss()
+        # self.nn_p.optimizer = torch.optim.AdamW(
+        #    self.nn_p.parameters(), lr=self.lr, amsgrad=True)
         self.set_mode(training)
 
     def set_mode(self, training: bool) -> None:
@@ -209,7 +207,7 @@ class DQN(Agent):
         current_Q = self.nn_p(state).gather(1, action)
 
         td_loss = (current_Q - target_Q).abs()
-        Q_loss = self.huber(td_loss)
+        Q_loss = self.lap_huber(td_loss)
 
         # Optimize the Q network
         self.nn_p.optimizer.zero_grad()
@@ -226,8 +224,8 @@ class DQN(Agent):
             self.alpha).cpu().data.numpy().flatten()
         self.mem.update_priority(ind, priority)
 
-    def huber(self, x: float) -> float:
-        """Compute huber term.
+    def lap_huber(self, x: float) -> float:
+        """Compute huber loss for loss-adjusted prioritized experience replay (LAP).
         """
         return torch.where(x < self.min_priority, 0.5 * x.pow(2), self.min_priority * x).mean()
 
@@ -256,7 +254,6 @@ class DQN(Agent):
             self.nn_p.optimizer.load_state_dict(checkpoint['opt_p'])
             self.nn_t.load_state_dict(checkpoint['nn_p'])
             self.nn_t.optimizer.load_state_dict(checkpoint['opt_t'])
-            self.criterion = checkpoint['criterion']
             self.eps = checkpoint['eps']
             self.eps_init = checkpoint['eps_init']
             self.eps_min = checkpoint['eps_min']
@@ -270,7 +267,6 @@ class DQN(Agent):
             'opt_p': self.nn_p.optimizer.state_dict(),
             'nn_t': self.nn_t.state_dict(),
             'opt_t': self.nn_t.optimizer.state_dict(),
-            'criterion': self.criterion,
             'eps': self.eps,
             'eps_init': self.eps_init,
             'eps_min': self.eps_min,

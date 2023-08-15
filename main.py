@@ -1,14 +1,16 @@
+import os
+import json
+import argparse
 import pandas as pd
 import numpy as np
-import argparse
+import gymnasium as gym
 from portcullis.sim import Sim
 from portcullis.replay import ReplayBuffer
-from portcullis.agent import DQN, TD3
+from portcullis.agent import DQN
 from portcullis.env import Env
 from portcullis.traders import DayTrader, TrendFollow, PredictSPY, PredictUpDown
 from portcullis.portfolio import Portfolio
 from portcullis.ta import EWMA
-import gymnasium as gym
 
 DEFAULT_RNG_SEED = 2170596287
 
@@ -83,6 +85,17 @@ def _daytrader(args) -> Env:
     return env
 
 
+def load_config(name: str = None) -> dict[str, any]:
+    path = f'./configs/{name.lower()}.json'
+    config = None
+    if os.path.exists(path):
+        print(f'Loading configuration from {path}...')
+        with open(path, 'r') as handle:
+            config = json.loads(handle.read())
+            print(config)
+    return config
+
+
 def create_trading_sim(args, dispatcher):
     env = dispatcher[args.env.lower()](args)
     print('Native Trading Environment:', env.name)
@@ -97,9 +110,6 @@ def create_trading_sim(args, dispatcher):
 
 
 def create_gym_sim(args: list[any], render_mode='human') -> any:
-    # 'CartPole-v1', 'LunarLander-v2', 'MountainCar-v0'
-    # 'MountainCarContinuous-v0', 'HalfCheetah-v2'
-    #
     # https://gymnasium.farama.org/
     env = gym.make(args.env, render_mode=render_mode)
     _, _, _, state_dim, _ = Env.get_env_spec(env)
@@ -121,13 +131,18 @@ def main():
     parser.add_argument('--env', default='CartPole-v1')
     # Algo name (DQN, TD3, DDPG or DDPGplus)
     parser.add_argument('--algo', type=str.upper, default='DQN',
-                        choices=['DQN', 'DQN_LAP', 'TD3', 'TD3_LAP'])
+                        choices=['DQN', 'TD3'])
     # Number of episodes
     parser.add_argument('--num_episodes', default=500,
                         type=int)
-    # Replaybuffer size
+    # Memory size
     parser.add_argument('--mem_size',
                         default=10_000, type=int)
+    # Memory type
+    parser.add_argument('--mem_type', type=str.upper,
+                        default="LAP", choices=['LAP', 'UNI'])
+    # Memory prefill
+    parser.add_argument('--mem_prefill', default=256, type=int)
     # Learning rate
     parser.add_argument('--lr',
                         default=1e-4, type=float)
@@ -142,7 +157,6 @@ def main():
     parser.add_argument('--eps_min', default=0.05, type=float)
     # Epsilon Decay
     parser.add_argument('--eps_decay', default=1e3, type=float)
-
     # How often (time steps) we evaluate
     parser.add_argument('--eval_freq', default=5e3, type=int)
     # Std of Gaussian exploration noise
@@ -161,14 +175,22 @@ def main():
     parser.add_argument('--policy_freq', default=2, type=int)
     # Verbose log output
     parser.add_argument('--verbose', default=False, action='store_true')
+    # Config file path (None=default path)
+    parser.add_argument('--config', default=None)
     # Save enabled
     parser.add_argument('--save', default=False, action='store_true')
     # Load enabled
     parser.add_argument('--load', default=False, action='store_true')
     # path for load/save (None=default path)
     parser.add_argument('--path', default=None)
-    # path for load/save (None=default path)
 
+    # Load config file if available, override with commandline params
+    args = parser.parse_args()
+    config = load_config(args.env.lower())
+    if config is not None:
+        parser.set_defaults(**config['hyperparams'])
+        del config['hyperparams']
+        parser.set_defaults(**config)
     args = parser.parse_args()
     print(args)
 

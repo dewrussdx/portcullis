@@ -13,12 +13,13 @@ class Sim:
     def __init__(self, agent: Agent):
         self.agent = agent
 
-    def plot(self, train, test) -> None:
+    def plot(self) -> None:
+        plt.plot(y=self.agent.scores, title=self.agent.name)
         plt.show()
 
     def run(self, args) -> None:
         env: Env = self.agent.env
-        is_gym, env_type, _, state_dim, _ = Env.get_env_spec(env)
+        is_gym, env_type, _, _, _ = Env.get_env_spec(env)
         assert env_type == Env.DISCRETE
 
         print('Seeding simulation:', args.seed)
@@ -37,8 +38,7 @@ class Sim:
         # Prefill replay buffer
         if training:
             print('Filling up replay buffer before training starts...')
-            desired_size = args.batch_size * 4
-            while self.agent.mem.size < desired_size:
+            while self.agent.mem.size < args.mem_prefill:
                 action = env.action_space.sample() if is_gym else env.random_action()
                 next_state, reward, done, trunc, _ = env.step(action)
                 done = done or trunc
@@ -63,8 +63,10 @@ class Sim:
 
             # Perform action
             next_state, reward, done, trunc, _ = env.step(action)
-            done = done or (trunc if episode_ticks <
-                            env._max_episode_steps else False)
+            # If you want to continue training even when env solved...
+            # done = done or (trunc if episode_ticks <
+            #                env._max_episode_steps else False)
+            done = done or trunc
 
             # Store data in replay buffer
             if training:
@@ -89,7 +91,7 @@ class Sim:
                     f'#{episode_count}:',
                     f'[TRAIN:{args.algo}]' if self.agent.training else f'[EVAL:{args.algo}]',
                     f'Score:{score:.2f}/{self.agent.high_score:.2f}',
-                    f'Eps:{self.agent.eps:.4f}',
+                    f'Eps:{self.agent.eps:.2f}',
                     f'Mem:{self.agent.mem.usage():.2f}%',
                     f'Time:{elapsed:.2f}/{total_time:.2f}',
                 )
