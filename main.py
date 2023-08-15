@@ -101,11 +101,11 @@ def create_trading_sim(args, dispatcher):
     print('Native Trading Environment:', env.name)
     _, _, _, state_dim, _ = Env.get_env_spec(env)
     replay_buffer = ReplayBuffer(
-        state_dim=state_dim, capacity=args.mem_size, batch_size=args.batch_size)
+        state_dim=state_dim, capacity=args.mem_size, batch_size=args.batch_size, is_prioritized=(args.mem_type == 'LAP'))
     agent = None
     if args.algo == 'DQN':
-        agent = DQN(env, mem=replay_buffer, hdims=(512, 256), lr=args.lr, gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay, tau=args.tau,
-                    name=f'{env.name}_DQNAgent')
+        agent = DQN(env, mem=replay_buffer, hdims=(512, 256), lr=args.lr, gamma=args.gamma, eps=args.eps, eps_min=args.eps_min,
+                    eps_decay=args.eps_decay, tau=args.tau, name=f'{env.name}_DQNAgent')
     return agent
 
 
@@ -114,11 +114,11 @@ def create_gym_sim(args: list[any], render_mode='human') -> any:
     env = gym.make(args.env, render_mode=render_mode)
     _, _, _, state_dim, _ = Env.get_env_spec(env)
     replay_buffer = ReplayBuffer(
-        state_dim=state_dim, capacity=args.mem_size, batch_size=args.batch_size)
+        state_dim=state_dim, capacity=args.mem_size, batch_size=args.batch_size, is_prioritized=(args.mem_type == 'LAP'))
     agent = None
     if args.algo == 'DQN':
-        agent = DQN(env, mem=replay_buffer, hdims=(512, 256), lr=args.lr, gamma=args.gamma, eps=args.eps, eps_min=args.eps_min, eps_decay=args.eps_decay, tau=args.tau,
-                    name=f'{args.env}_DQNAgent')
+        agent = DQN(env, mem=replay_buffer, hdims=(512, 256), lr=args.lr, gamma=args.gamma, eps=args.eps, eps_min=args.eps_min,
+                    eps_decay=args.eps_decay, tau=args.tau, name=f'{args.env}_DQNAgent')
     return agent
 
 

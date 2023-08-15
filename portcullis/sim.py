@@ -101,8 +101,8 @@ class Sim:
                 state, _ = env.reset()
                 score = 0.
                 episode_ticks = 0
-
         env.close()
+        print('Simulation has ended.')
 
     def run_continuous(self, env, args):
         # Set seeds
