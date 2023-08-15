@@ -34,7 +34,7 @@ class Sim:
         if args.load:
             self.agent.load(path=args.path)
         self.agent.set_mode(training)
-       
+
         # Prefill replay buffer
         if training:
             print('Filling up replay buffer before training starts...')
@@ -45,7 +45,7 @@ class Sim:
                 self.agent.mem.add(state, action, next_state, reward, done)
                 if done:
                     state, _ = env.reset()
-          
+
         # Set simulation to initial state
         print('Simulation is starting...')
         state, _ = env.reset()

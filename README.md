@@ -14,7 +14,8 @@ NOTE: The requirements will be replaced with a dockerized environment in the nea
 - Activate the Python virtual environment via ```.venv\Scripts\activate.bat``` (Windows) or ```source ./.venv/bin/activate``` (Linux/MacOS)
 3. Install Portcullis Python package dependencies
 - ```python -m pip install -r requirements.txt```
-4. Run Portcullis via ```python ./main.py```
+4. Run Portcullis RL platform via ```python ./rl.py```
+5. Run Portcullis Portfolio samples via ```python ./portfolio.py```
 
 
 This framework is using the yfinance package to manage financial information. Documentation can be found here: https://pypi.org/project/yfinance/
