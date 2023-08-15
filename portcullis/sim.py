@@ -26,15 +26,15 @@ class Sim:
         torch.manual_seed(args.seed)
         random.seed(args.seed)
         np.random.seed(args.seed)
-
         state, _ = env.reset(seed=args.seed)
+
+        # Set and load agent mode
         training = args.mode.lower() == 'train'
         self.agent.set_mode(training)
         if args.load:
             self.agent.load(path=args.path)
         self.agent.set_mode(training)
-        state, _ = env.reset(seed=args.seed)
-
+       
         # Prefill replay buffer
         if training:
             print('Filling up replay buffer before training starts...')
@@ -45,10 +45,10 @@ class Sim:
                 self.agent.mem.add(state, action, next_state, reward, done)
                 if done:
                     state, _ = env.reset()
-            state, _ = env.reset()
-
-        print('Simulation is starting...')
+          
         # Set simulation to initial state
+        print('Simulation is starting...')
+        state, _ = env.reset()
         score = 0.
         episode_ticks = 0
         episode_count = 0
@@ -95,7 +95,6 @@ class Sim:
                     f'Mem:{self.agent.mem.usage():.2f}%',
                     f'Time:{elapsed:.2f}/{total_time:.2f}',
                 )
-
                 # Reset environment
                 timer = time()
                 state, _ = env.reset()

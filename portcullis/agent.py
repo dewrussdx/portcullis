@@ -19,7 +19,7 @@ class Agent():
         self.env = env
         self.is_gym, self.env_type, self.action_dim, self.state_dim, self.action_max = Env.get_env_spec(
             self.env)
-        self.mem = mem or ReplayBuffer(state_dim=self.state_dim)
+        self.mem = mem
         self.hdims = hdims
         self.lr = lr
         self.gamma = gamma

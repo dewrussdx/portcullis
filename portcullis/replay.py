@@ -1,13 +1,17 @@
 import numpy as np
 import torch
 from portcullis.pytorch import DEVICE
+from portcullis.env import State, Action
 
 
 class ReplayBuffer():
-    """Initialize replay buffer.
+    """Experience Replay Buffer. 
+    This buffer can be configured (is_prioritized) as LAP (Loss-Adjusted priotized) xp buffer.
     """
 
     def __init__(self, state_dim: int, capacity: int = 10_000, batch_size: int = 64, is_prioritized: bool = True):
+        """Initialize experience replay buffer.
+        """
         self.capacity = capacity
         self.batch_size = batch_size
 
@@ -21,13 +25,19 @@ class ReplayBuffer():
         self.not_done = np.zeros((self.capacity, 1))
 
         self.is_prioritized = is_prioritized
-
         if self.is_prioritized:
             self.tree = SumTree(self.capacity)
             self.max_priority = 1.0
             self.beta = 0.4
 
-    def add(self, state, action, next_state, reward, done):
+        print(f'Instantiated ReplayBuffer:')
+        print(f'- Capacity: {self.capacity}')
+        print(f'- Batch Size: {self.batch_size}')
+        print(f'- Prioritized: {self.is_prioritized}')
+
+    def add(self, state: State, action: Action, next_state: State, reward: float, done: bool) -> None:
+        """Add a transition to the replay buffer.
+        """
         self.state[self.ptr] = state
         self.action[self.ptr] = action
         self.next_state[self.ptr] = next_state
@@ -40,7 +50,9 @@ class ReplayBuffer():
         self.ptr = (self.ptr + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """Return length of replay buffer.
+        """
         return self.size
 
     def sample(self):
