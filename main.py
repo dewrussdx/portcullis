@@ -47,23 +47,24 @@ def swingtrading_portfolio_sample():
 def _trendFollow(_args, lookback: int = 7) -> Env:
     features = ['Close']
     df = Env.yf_download('AMZN', start='2015-01-01',
-                         features=features, logret_col=None, ta=[EWMA(20), EWMA(8)])
-    train, _ = Env.split_data(df, test_ratio=0.25)
+                         features=features, logret_col='Close', ta=[EWMA(20), EWMA(8)])
+    train, _ = Env.split_data(df, test_ratio=0.2)
     env = TrendFollow(train, features)
     return env
 
 
 def _predictSPY(_args) -> Env:
-    df = pd.read_csv('sp500_closefull.csv', index_col=0, parse_dates=True)
-    df.dropna(axis=0, how='all', inplace=True)
-    df.dropna(axis=1, how='any', inplace=True)
-    df_returns = pd.DataFrame()
+    raw = pd.read_csv('sp500_closefull.csv', index_col=0, parse_dates=True)
+    raw.dropna(axis=0, how='all', inplace=True)
+    raw.dropna(axis=1, how='any', inplace=True)
+    df = pd.DataFrame()
     features = ['AAPL', 'MSFT', 'AMZN']
     for name in features:
-        df_returns[name] = np.log(df[name]).diff()
-    df_returns['SPY'] = np.log(df['SPY']).diff()
-    df_returns.dropna(axis=0, how='any', inplace=True)
-    env = PredictSPY(df=df_returns.iloc[:-1000], features=features)
+        df[name] = np.log(raw[name]).diff()
+    df['SPY'] = np.log(raw['SPY']).diff()
+    df.dropna(axis=0, how='any', inplace=True)
+    train, _ = Env.split_data(df, test_ratio=0.2)
+    env = PredictSPY(train, features)
     return env
 
 
@@ -98,7 +99,7 @@ def load_config(name: str = None) -> dict[str, any]:
 
 def create_trading_sim(args, dispatcher):
     env = dispatcher[args.env.lower()](args)
-    print('Native Trading Environment:', env.name)
+    print('Trading environment:', env.name)
     _, _, _, state_dim, _ = Env.get_env_spec(env)
     replay_buffer = ReplayBuffer(
         state_dim=state_dim, capacity=args.mem_size, batch_size=args.batch_size, is_prioritized=(args.mem_type == 'LAP'))
@@ -111,6 +112,7 @@ def create_trading_sim(args, dispatcher):
 
 def create_gym_sim(args: list[any], render_mode='human') -> any:
     # https://gymnasium.farama.org/
+    print('Gym environment:', args.env)
     env = gym.make(args.env, render_mode=render_mode)
     _, _, _, state_dim, _ = Env.get_env_spec(env)
     replay_buffer = ReplayBuffer(
@@ -194,6 +196,7 @@ def main():
     args = parser.parse_args()
     print(args)
 
+    # Native/Trader simulation dispatcher
     trader_dispatcher = {
         'predictupdown': _predictUpDown,
         'predictspy': _predictSPY,
