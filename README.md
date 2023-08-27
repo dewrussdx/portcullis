@@ -1,5 +1,5 @@
 # portcullis
-Deep Reinforcement Gaming, Robotics & Trading Platform
+Deep Reinforcement Learning Gaming, Robotics & Trading Platform
 
 ## Requirements
 
