@@ -10,7 +10,7 @@ from portcullis.agent import Agent, DQN
 from portcullis.env import Env
 from portcullis.traders import DayTrader, TrendFollow, PredictSPY, PredictUpDown
 from portcullis.ta import EWMA
-
+from portcullis.tictactoe import TicTacToe
 DEFAULT_RNG_SEED = 2170596287
 
 
@@ -53,12 +53,13 @@ class EnvFactory:
 
     @staticmethod
     def create_daytrader(args) -> Env:
+        features = ['Close']
         df = Env.yf_download('AAPL', start='2015-01-01',
-                             features=['Close'], logret_col=None, ta=[])
-
+                             features=features, logret_col='Close', ta=[])
         train, test = Env.split_data(df, test_ratio=0.25)
         data = train if args.mode == 'train' else test
-        env = DayTrader(data, balance=10_000, verbose=args.verbose)
+        env = DayTrader(df=data, features=features,
+                        balance=10_000, verbose=args.verbose)
         return env
 
     @staticmethod
@@ -95,6 +96,18 @@ class EnvFactory:
         _, _, _, state_dim, _ = Env.get_env_spec(env)
         replay_buffer = ReplayBuffer(
             state_dim=state_dim, capacity=args.mem_size, batch_size=args.batch_size, is_prioritized=(args.mem_type == 'LAP'))
+        agent = None
+        if args.algo == 'DQN':
+            agent = DQN(env, mem=replay_buffer, hdims=(512, 256), lr=args.lr, gamma=args.gamma, eps=args.eps, eps_min=args.eps_min,
+                        eps_decay=args.eps_decay, tau=args.tau, name=f'{args.env}_DQNAgent')
+        return agent
+
+    @staticmethod
+    def create_tictactoe(args: list[any]) -> Agent:
+        print('TicTacToe Game:', args.env)
+        env = TicTacToe()
+        replay_buffer = ReplayBuffer(
+            state_dim=pow(3, 9), capacity=args.mem_size, batch_size=args.batch_size, is_prioritized=(args.mem_type == 'LAP'))
         agent = None
         if args.algo == 'DQN':
             agent = DQN(env, mem=replay_buffer, hdims=(512, 256), lr=args.lr, gamma=args.gamma, eps=args.eps, eps_min=args.eps_min,
@@ -182,9 +195,12 @@ def main():
     args = parser.parse_args()
     print(args)
 
-    agent = EnvFactory.create_trading_sim(args)
-    if agent is None:
-        agent = EnvFactory.create_gym_sim(args)
+    if args.env == 'TicTacToe':
+        agent = EnvFactory.create_tictactoe(args)
+    else:
+        agent = EnvFactory.create_trading_sim(args)
+        if agent is None:
+            agent = EnvFactory.create_gym_sim(args)
     assert agent is not None
 
     # ---------------
