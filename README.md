@@ -12,6 +12,7 @@ NOTE: The requirements will be replaced with a dockerized environment in the nea
 2. Create Python virtual environment - Note: Some installations require specifying the Python version, e.g. `python3` 
 - Run ```python -m venv .venv``` to create a virtual environment in the ```.venv``` directory
 - Activate the Python virtual environment via ```.venv\Scripts\activate.bat``` (Windows) or ```source ./.venv/bin/activate``` (Linux/MacOS)
+- Upgrade pip to latest version, via ```python -m pip install --upgrade pip```
 3. Install Portcullis Python package dependencies
 - ```python -m pip install -r requirements.txt```
 4. Run Portcullis RL platform via ```python ./rl.py```
